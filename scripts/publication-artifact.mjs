@@ -163,7 +163,12 @@ export async function publishPublicationArtifact({
   }
 
   const root = path.resolve(directory);
-  const manifest = await verifyPublicationArtifact({ directory: root, version, commit });
+  const { manifest, registryIntegrities } = await checkPublicationRegistry({
+    directory: root,
+    version,
+    commit,
+    fetchImpl
+  });
   const npm = npmCommand ?? await resolveNpm(root);
   const versionResult = spawnImpl(npm, ["--version"], { encoding: "utf8", env, shell: false });
   if (versionResult.status !== 0 || !npmVersionSupported(versionResult.stdout?.trim())) {
@@ -172,9 +177,8 @@ export async function publishPublicationArtifact({
 
   for (const name of PUBLISH_ORDER) {
     const item = manifest.packages.find((candidate) => candidate.name === name);
-    const existing = await registryIntegrity(fetchImpl, name, version);
+    const existing = registryIntegrities.get(name);
     if (existing !== undefined) {
-      if (existing !== item.integrity) throw new Error(`${name}@${version} already exists with different registry integrity.`);
       console.log(`Verified existing ${name}@${version}; exact integrity matches, skipping.`);
       continue;
     }
@@ -199,6 +203,20 @@ export async function publishPublicationArtifact({
     }
     console.log(`Published and verified ${name}@${version}.`);
   }
+}
+
+export async function checkPublicationRegistry({ directory, version, commit, fetchImpl = fetch }) {
+  const manifest = await verifyPublicationArtifact({ directory, version, commit });
+  const registryIntegrities = new Map();
+  for (const name of PUBLISH_ORDER) {
+    const item = manifest.packages.find((candidate) => candidate.name === name);
+    const existing = await registryIntegrity(fetchImpl, name, version);
+    if (existing !== undefined && existing !== item.integrity) {
+      throw new Error(`${name}@${version} already exists with different registry integrity.`);
+    }
+    registryIntegrities.set(name, existing);
+  }
+  return { manifest, registryIntegrities };
 }
 
 function expectedPackages(version) {
@@ -271,7 +289,7 @@ function digest(contents, algorithm) {
 async function registryIntegrity(fetchImpl, name, version) {
   const url = `${PUBLIC_REGISTRY}/${encodeURIComponent(name)}/${encodeURIComponent(version)}`;
   const response = await fetchImpl(url, {
-    headers: { accept: "application/vnd.npm.install-v1+json", "user-agent": "preflight-scout-publisher" },
+    headers: { accept: "application/json", "user-agent": "preflight-scout-publisher" },
     redirect: "error"
   });
   if (response.status === 404) return undefined;
@@ -342,10 +360,18 @@ async function main() {
   } else if (args.command === "verify") {
     await verifyPublicationArtifact({ directory: args.directory, version: args.version, commit: args.commit });
     console.log(`Verified publication artifact for ${PUBLIC_REPOSITORY}@${args.commit}: six exact ${args.version} tarballs and checksums.`);
+  } else if (args.command === "check-registry") {
+    const { registryIntegrities } = await checkPublicationRegistry({
+      directory: args.directory,
+      version: args.version,
+      commit: args.commit
+    });
+    const existing = [...registryIntegrities.values()].filter((integrity) => integrity !== undefined).length;
+    console.log(`Registry preflight passed for ${PUBLIC_REPOSITORY}@${args.version}: ${existing} existing, ${PUBLISH_ORDER.length - existing} missing.`);
   } else if (args.command === "publish") {
     await publishPublicationArtifact({ directory: args.directory, version: args.version, commit: args.commit, mode: args.mode });
   } else {
-    throw new Error("Usage: publication-artifact.mjs <prepare|verify|publish> [--name value ...]");
+    throw new Error("Usage: publication-artifact.mjs <prepare|verify|check-registry|publish> [--name value ...]");
   }
 }
 
