@@ -24,6 +24,7 @@ const requiredFiles = [
   ".github/workflows/labeler.yml",
   ".github/workflows/preflight-scout-self-check.yml",
   ".github/workflows/publish.yml",
+  ".github/workflows/recover-npm-v0.1.0.yml",
   ".github/workflows/release-candidate.yml",
   ".agents/plugins/marketplace.json",
   ".claude-plugin/marketplace.json",

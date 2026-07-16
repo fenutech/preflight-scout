@@ -71,6 +71,9 @@ independently.
 
 ### Fixed
 
+- Corrected exact-version npm registry negotiation and moved all six integrity
+  checks ahead of publication, so a mismatch fails before any new tarball is
+  published and a matching partial release can resume safely.
 - Kept report metadata, totals, and footer text inside proportional desktop and
   mobile frame safe areas, including wrapped repository and branch labels.
 - Removed the unused Next.js client runtime from the pure static website export

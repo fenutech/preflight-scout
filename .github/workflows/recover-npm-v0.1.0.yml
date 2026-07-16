@@ -1,0 +1,304 @@
+name: Recover npm 0.1.0 publication
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type RECOVER @preflight-scout VERSION 0.1.0 FROM RUN 29527160704
+        required: true
+        type: string
+
+concurrency:
+  group: npm-publication-0.1.0
+  cancel-in-progress: false
+
+permissions: {}
+
+env:
+  VERSION: "0.1.0"
+  ORIGINAL_COMMIT: 635367af48d1c75b95a08b3e97001258729c0d46
+  ORIGINAL_RUN_ID: "29527160704"
+  ORIGINAL_RUN_ATTEMPT: "2"
+  ORIGINAL_ARTIFACT_ID: "8387183326"
+  ORIGINAL_ARTIFACT_NAME: preflight-scout-npm-0.1.0-635367af48d1c75b95a08b3e97001258729c0d46
+  ORIGINAL_ARTIFACT_SHA256: f9f17641b2cde65c1a0758e21e247c0b25f3e1001637e395f5da557a473c9ed9
+  RECOVERY_TAG: v0.1.0-recovery.1
+
+jobs:
+  validate:
+    name: Validate pinned partial-release recovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      publisher-artifact-name: ${{ steps.publisher.outputs.artifact_name }}
+      publisher-sha256: ${{ steps.publisher.outputs.publisher_sha256 }}
+      publisher-artifact-digest: ${{ steps.upload-publisher.outputs.artifact-digest }}
+    steps:
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.15.0"
+          package-manager-cache: false
+
+      - name: Reject the wrong repository, visibility, ref, or confirmation
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          set -euo pipefail
+          [[ "$REPOSITORY" == "fenutech/preflight-scout" ]]
+          [[ "$REPOSITORY_PRIVATE" == "false" ]]
+          [[ "$GITHUB_REF_TYPE" == "tag" ]]
+          [[ "$GITHUB_REF_NAME" == "$RECOVERY_TAG" ]]
+          [[ "$GITHUB_REF" == "refs/tags/${RECOVERY_TAG}" ]]
+          [[ "$CONFIRMATION" == "RECOVER @preflight-scout VERSION ${VERSION} FROM RUN ${ORIGINAL_RUN_ID}" ]]
+
+      - name: Verify the original run, artifact, and recovery commit through GitHub
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module <<'NODE'
+          const headers = {
+            accept: "application/vnd.github+json",
+            authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+            "user-agent": "preflight-scout-npm-recovery",
+            "x-github-api-version": "2022-11-28"
+          };
+          async function getJson(path) {
+            const response = await fetch(`https://api.github.com${path}`, { headers, redirect: "error" });
+            const text = await response.text();
+            if (!response.ok) throw new Error(`GitHub API ${path} failed with HTTP ${response.status}.`);
+            if (text.length > 1024 * 1024) throw new Error(`GitHub API ${path} exceeded 1 MiB.`);
+            return JSON.parse(text);
+          }
+          const [run, artifact, main] = await Promise.all([
+            getJson(`/repos/fenutech/preflight-scout/actions/runs/${process.env.ORIGINAL_RUN_ID}/attempts/${process.env.ORIGINAL_RUN_ATTEMPT}`),
+            getJson(`/repos/fenutech/preflight-scout/actions/artifacts/${process.env.ORIGINAL_ARTIFACT_ID}`),
+            getJson("/repos/fenutech/preflight-scout/branches/main")
+          ]);
+          if (
+            run.id !== Number(process.env.ORIGINAL_RUN_ID) ||
+            run.run_attempt !== Number(process.env.ORIGINAL_RUN_ATTEMPT) ||
+            run.path !== ".github/workflows/publish.yml" ||
+            run.event !== "workflow_dispatch" ||
+            run.head_branch !== "v0.1.0" ||
+            run.head_sha !== process.env.ORIGINAL_COMMIT ||
+            run.status !== "completed" ||
+            run.conclusion !== "failure" ||
+            run.repository?.full_name !== "fenutech/preflight-scout"
+          ) throw new Error("Original publication run metadata does not match the pinned failed attempt.");
+          if (
+            artifact.id !== Number(process.env.ORIGINAL_ARTIFACT_ID) ||
+            artifact.name !== process.env.ORIGINAL_ARTIFACT_NAME ||
+            artifact.digest !== `sha256:${process.env.ORIGINAL_ARTIFACT_SHA256}` ||
+            artifact.size_in_bytes !== 448887 ||
+            artifact.expired !== false ||
+            artifact.workflow_run?.id !== Number(process.env.ORIGINAL_RUN_ID) ||
+            artifact.workflow_run?.head_branch !== "v0.1.0" ||
+            artifact.workflow_run?.head_sha !== process.env.ORIGINAL_COMMIT
+          ) throw new Error("Original publication artifact metadata does not match the pinned candidate.");
+          if (main.commit?.sha !== process.env.GITHUB_SHA) {
+            throw new Error("Recovery tag must point to the current protected main commit.");
+          }
+          NODE
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.ref }}
+
+      - name: Prove the corrected publisher behavior
+        run: node scripts/test-publication-artifact.mjs
+
+      - name: Download and verify the exact original candidate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/original-candidate.zip"
+          curl --fail --silent --show-error --location \
+            --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/fenutech/preflight-scout/actions/artifacts/${ORIGINAL_ARTIFACT_ID}/zip" \
+            --output "$archive"
+          printf '%s  %s\n' "$ORIGINAL_ARTIFACT_SHA256" "$archive" | sha256sum --check --strict
+          printf '%s\n' \
+            SHA256SUMS \
+            preflight-scout-agent-exec-0.1.0.tgz \
+            preflight-scout-browser-runner-0.1.0.tgz \
+            preflight-scout-cli-0.1.0.tgz \
+            preflight-scout-core-0.1.0.tgz \
+            preflight-scout-github-action-0.1.0.tgz \
+            preflight-scout-mcp-0.1.0.tgz \
+            publication-artifact.mjs \
+            publication-manifest.json > "$RUNNER_TEMP/expected-files.txt"
+          unzip -Z1 "$archive" | LC_ALL=C sort > "$RUNNER_TEMP/actual-files.txt"
+          diff -u "$RUNNER_TEMP/expected-files.txt" "$RUNNER_TEMP/actual-files.txt"
+          mkdir publication-candidate
+          unzip -q "$archive" -d publication-candidate
+          node scripts/publication-artifact.mjs verify \
+            --directory publication-candidate \
+            --version "$VERSION" \
+            --commit "$ORIGINAL_COMMIT"
+          node scripts/publication-artifact.mjs check-registry \
+            --directory publication-candidate \
+            --version "$VERSION" \
+            --commit "$ORIGINAL_COMMIT"
+
+      - name: Prepare the validated recovery publisher
+        id: publisher
+        run: |
+          set -euo pipefail
+          mkdir recovery-tools
+          cp scripts/publication-artifact.mjs recovery-tools/publication-artifact.mjs
+          printf 'artifact_name=preflight-scout-recovery-publisher-%s\n' "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          printf 'publisher_sha256=sha256:%s\n' "$(sha256sum recovery-tools/publication-artifact.mjs | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload only the validated recovery publisher
+        id: upload-publisher
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.publisher.outputs.artifact_name }}
+          path: recovery-tools/publication-artifact.mjs
+          include-hidden-files: false
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  recover:
+    name: Resume the exact npm publication
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: npm-production
+    permissions:
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.15.0"
+          package-manager-cache: false
+          registry-url: https://registry.npmjs.org
+
+      - name: Install the pinned provenance-capable npm CLI
+        run: |
+          npm install --global npm@11.18.0 --ignore-scripts
+          [[ "$(npm --version)" == "11.18.0" ]]
+
+      - name: Re-download and reverify the exact original candidate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/original-candidate.zip"
+          curl --fail --silent --show-error --location \
+            --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/fenutech/preflight-scout/actions/artifacts/${ORIGINAL_ARTIFACT_ID}/zip" \
+            --output "$archive"
+          printf '%s  %s\n' "$ORIGINAL_ARTIFACT_SHA256" "$archive" | sha256sum --check --strict
+          printf '%s\n' \
+            SHA256SUMS \
+            preflight-scout-agent-exec-0.1.0.tgz \
+            preflight-scout-browser-runner-0.1.0.tgz \
+            preflight-scout-cli-0.1.0.tgz \
+            preflight-scout-core-0.1.0.tgz \
+            preflight-scout-github-action-0.1.0.tgz \
+            preflight-scout-mcp-0.1.0.tgz \
+            publication-artifact.mjs \
+            publication-manifest.json > "$RUNNER_TEMP/expected-files.txt"
+          unzip -Z1 "$archive" | LC_ALL=C sort > "$RUNNER_TEMP/actual-files.txt"
+          diff -u "$RUNNER_TEMP/expected-files.txt" "$RUNNER_TEMP/actual-files.txt"
+          mkdir publication-candidate
+          unzip -q "$archive" -d publication-candidate
+
+      - name: Download only this run's validated recovery publisher
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.validate.outputs.publisher-artifact-name }}
+          path: recovery-tools
+
+      - name: Reverify the recovery publisher and all registry versions without credentials
+        env:
+          EXPECTED_PUBLISHER_ARTIFACT_DIGEST: ${{ needs.validate.outputs.publisher-artifact-digest }}
+          EXPECTED_PUBLISHER_SHA256: ${{ needs.validate.outputs.publisher-sha256 }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_PUBLISHER_ARTIFACT_DIGEST" =~ ^[0-9a-f]{64}$ ]]
+          actual="sha256:$(sha256sum recovery-tools/publication-artifact.mjs | cut -d ' ' -f 1)"
+          [[ "$actual" == "$EXPECTED_PUBLISHER_SHA256" ]]
+          node recovery-tools/publication-artifact.mjs verify \
+            --directory publication-candidate \
+            --version "$VERSION" \
+            --commit "$ORIGINAL_COMMIT"
+          node recovery-tools/publication-artifact.mjs check-registry \
+            --directory publication-candidate \
+            --version "$VERSION" \
+            --commit "$ORIGINAL_COMMIT"
+
+      - name: Publish only missing exact tarballs with the protected bootstrap token
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          node recovery-tools/publication-artifact.mjs publish \
+            --directory publication-candidate \
+            --version "$VERSION" \
+            --commit "$ORIGINAL_COMMIT" \
+            --mode bootstrap-token
+
+  verify-live-install:
+    name: Verify recovered npm install (${{ matrix.os }})
+    needs: recover
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions: {}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.15.0"
+          package-manager-cache: false
+
+      - name: Wait for the exact public CLI version
+        shell: bash
+        run: |
+          set -euo pipefail
+          for _attempt in {1..12}; do
+            if [[ "$(npm view "@preflight-scout/cli@${VERSION}" version --registry=https://registry.npmjs.org/ 2>/dev/null || true)" == "$VERSION" ]]; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "@preflight-scout/cli@${VERSION} did not become readable from the public registry." >&2
+          exit 1
+
+      - name: Install the exact public CLI with npm
+        shell: bash
+        run: npm install --global --prefix "$RUNNER_TEMP/preflight-scout-npm" "@preflight-scout/cli@${VERSION}" --registry=https://registry.npmjs.org/
+
+      - name: Validate the installed command and browser on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          command="$RUNNER_TEMP/preflight-scout-npm/bin/preflight-scout"
+          [[ "$("$command" --version)" == "$VERSION" ]]
+          "$command" install-browser
+
+      - name: Validate the installed command and browser on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $command = Join-Path $env:RUNNER_TEMP "preflight-scout-npm\preflight-scout.cmd"
+          if ((& $command --version).Trim() -ne $env:VERSION) { throw "Unexpected Preflight Scout version" }
+          & $command install-browser

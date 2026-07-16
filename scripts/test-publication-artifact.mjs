@@ -27,7 +27,11 @@ try {
   assert.deepEqual(manifest.publishOrder, PUBLISH_ORDER);
   assert.equal(manifest.packages.length, 6);
 
-  const existingFetch = registryFetch(new Map(manifest.packages.map((item) => [item.name, item.integrity])));
+  const registryRequests = [];
+  const existingFetch = registryFetch(
+    new Map(manifest.packages.map((item) => [item.name, item.integrity])),
+    registryRequests
+  );
   const calls = [];
   await publishPublicationArtifact({
     directory: artifact,
@@ -40,6 +44,11 @@ try {
     spawnImpl: fakeNpm(calls)
   });
   assert.deepEqual(calls, [], "matching registry versions must not be republished");
+  assert.equal(registryRequests.length, PUBLISH_ORDER.length);
+  assert.ok(
+    registryRequests.every((request) => request.options.headers.accept === "application/json"),
+    "exact-version registry lookups must request the representation npm serves"
+  );
 
   const registry = new Map(manifest.packages.map((item) => [item.name, item.integrity]));
   registry.delete(PUBLISH_ORDER[0]);
@@ -61,7 +70,9 @@ try {
   assert.ok(published[0].includes("--provenance"));
 
   const mismatch = new Map(manifest.packages.map((item) => [item.name, item.integrity]));
-  mismatch.set(PUBLISH_ORDER[0], `sha512-${Buffer.from("different").toString("base64")}`);
+  mismatch.delete(PUBLISH_ORDER[0]);
+  mismatch.set(PUBLISH_ORDER.at(-1), `sha512-${Buffer.from("different").toString("base64")}`);
+  const mismatchPublishCalls = [];
   await assert.rejects(
     publishPublicationArtifact({
       directory: artifact,
@@ -71,10 +82,11 @@ try {
       env: {},
       fetchImpl: registryFetch(mismatch),
       npmCommand: "/trusted/npm",
-      spawnImpl: fakeNpm([])
+      spawnImpl: fakeNpm(mismatchPublishCalls)
     }),
     /different registry integrity/
   );
+  assert.deepEqual(mismatchPublishCalls, [], "all registry versions must pass integrity preflight before any publish");
   await assert.rejects(
     publishPublicationArtifact({
       directory: artifact,
@@ -94,7 +106,7 @@ try {
   await writeFile(checksumsPath, `${originalChecksums[0] === "0" ? "1" : "0"}${originalChecksums.slice(1)}`);
   await assert.rejects(verifyPublicationArtifact({ directory: artifact, version, commit }), /checksum mismatch|malformed/);
 
-  console.log("Publication artifact tests passed exact packing, integrity verification, safe retry, token-mode separation, and mismatch rejection.");
+  console.log("Publication artifact tests passed exact packing, JSON registry lookups, all-package integrity preflight, safe retry, token-mode separation, and mismatch rejection.");
 } finally {
   await rm(root, { recursive: true, force: true });
 }
@@ -118,8 +130,9 @@ async function writeTarball(directory, name, packageVersion) {
   if (result.status !== 0) throw new Error(`Could not create fixture tarball ${file}.`);
 }
 
-function registryFetch(registry) {
-  return async (url) => {
+function registryFetch(registry, requests = []) {
+  return async (url, options = {}) => {
+    requests.push({ url, options });
     const parsed = new URL(url);
     const segments = parsed.pathname.split("/").filter(Boolean);
     const name = decodeURIComponent(segments[0]);
