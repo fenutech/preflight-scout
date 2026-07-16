@@ -43,12 +43,12 @@ jobs:
         with:
           github-token: ${{ github.token }}
           mode: analyze-and-run
+          app-url: ${{ vars.PREVIEW_URL }}
           mission-limit: "1"
           fail-on: needs_attention
         env:
           PREFLIGHT_SCOUT_LLM_PROVIDER: openai
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          PREFLIGHT_SCOUT_APP_URL: ${{ vars.PREVIEW_URL }}
 ```
 
 Start with one ranked mission. Expand the limit only after reviewing the target,
