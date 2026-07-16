@@ -13,10 +13,10 @@ It can:
 
 ## Release status
 
-Do not infer Action availability from this source tree, a planned tag such as
-`v0`, or an old copy of this page. Enable the template only when an authorized
-public release identifies a real commit, and replace `FULL_RELEASE_COMMIT_SHA`
-with that release's complete 40-character commit SHA.
+Version `0.1.0` is available from commit
+`635367af48d1c75b95a08b3e97001258729c0d46`. The workflow below pins that
+exact release. Review each later release before changing the SHA; do not use a
+floating branch or major-version tag for this Action.
 
 ## Workflow template
 
@@ -39,8 +39,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
-      # Not runnable until FULL_RELEASE_COMMIT_SHA is replaced after publication.
-      - uses: fenutech/preflight-scout@FULL_RELEASE_COMMIT_SHA
+      - uses: fenutech/preflight-scout@635367af48d1c75b95a08b3e97001258729c0d46 # v0.1.0
         with:
           github-token: ${{ github.token }}
           mode: analyze-and-run

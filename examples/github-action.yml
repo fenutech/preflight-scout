@@ -1,6 +1,4 @@
-# Template only. The Action is not published yet.
-# Replace FULL_RELEASE_COMMIT_SHA with a reviewed 40-character release commit
-# before enabling this workflow.
+# Preflight Scout Action 0.1.0, pinned to its reviewed release commit.
 name: Preflight Scout
 on:
   pull_request:
@@ -19,7 +17,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
-      - uses: fenutech/preflight-scout@FULL_RELEASE_COMMIT_SHA
+      - uses: fenutech/preflight-scout@635367af48d1c75b95a08b3e97001258729c0d46 # v0.1.0
         with:
           github-token: ${{ github.token }}
           mode: analyze-and-run
