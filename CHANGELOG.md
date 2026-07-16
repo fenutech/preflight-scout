@@ -4,12 +4,18 @@ All notable changes to Preflight Scout are documented here. This project follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] - Unreleased
+## [Unreleased]
 
-This entry describes the unreleased `0.1.0` alpha candidate. The presence of
-this tree in a repository does not by itself prove that a Git tag, npm package,
-or external marketplace listing exists; verify each release channel
-independently.
+### Changed
+
+- Removed the one-time `0.1.0` npm recovery workflow after all packages and
+  public installation checks passed.
+- Made the live publication gate wait for all six package versions before the
+  clean CLI installation check.
+
+## [0.1.0] - 2026-07-16
+
+Initial public alpha release.
 
 ### Added
 
