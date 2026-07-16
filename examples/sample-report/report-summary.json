@@ -1,0 +1,61 @@
+{
+  "generatedAt": "2026-07-13T12:00:00.000Z",
+  "title": "Validate promo-code totals and feedback",
+  "risk": "high",
+  "verdict": "needs_attention",
+  "releaseDecision": {
+    "status": "do_not_ship_yet",
+    "reason": "1 browser check failed; 0 were blocked.",
+    "nextSteps": [
+      "Review the failed or blocked mission evidence.",
+      "Fix the issue or provide the missing credentials, permissions, approval, or safe test data.",
+      "Rerun Preflight Scout before production."
+    ]
+  },
+  "counts": {
+    "affectedAreas": 2,
+    "manualChecks": 4,
+    "edgeCases": 3,
+    "suggestedBrowserMissions": 2,
+    "browserMissions": 2,
+    "passed": 1,
+    "failed": 1,
+    "blocked": 0
+  },
+  "browserMissions": [
+    {
+      "id": "auto-valid-promo",
+      "title": "Valid promo updates the total",
+      "risk": "high",
+      "status": "passed",
+      "finalMessage": "SAVE10 reduced the displayed total from $100.00 to $90.00.",
+      "artifacts": [
+        "auto-valid-promo/console-errors.json",
+        "auto-valid-promo/network-errors.json",
+        "auto-valid-promo/final-observation.json"
+      ],
+      "evidence": {
+        "consolePath": "auto-valid-promo/console-errors.json",
+        "networkPath": "auto-valid-promo/network-errors.json",
+        "finalObservationPath": "auto-valid-promo/final-observation.json"
+      }
+    },
+    {
+      "id": "auto-expired-promo",
+      "title": "Expired promo preserves the total",
+      "risk": "high",
+      "status": "failed",
+      "finalMessage": "Expired-code feedback was visible, but the total changed to $90.00; expected $100.00.",
+      "artifacts": [
+        "auto-expired-promo/console-errors.json",
+        "auto-expired-promo/network-errors.json",
+        "auto-expired-promo/final-observation.json"
+      ],
+      "evidence": {
+        "consolePath": "auto-expired-promo/console-errors.json",
+        "networkPath": "auto-expired-promo/network-errors.json",
+        "finalObservationPath": "auto-expired-promo/final-observation.json"
+      }
+    }
+  ]
+}

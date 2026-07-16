@@ -1,0 +1,27 @@
+{
+  "name": "preflight-scout",
+  "version": "0.1.0",
+  "description": "PR-aware release QA that maps changes, runs focused checks and bounded browser missions, and reports evidence.",
+  "author": {
+    "name": "Andrea Fenu",
+    "url": "https://github.com/anfen93"
+  },
+  "homepage": "https://github.com/fenutech/preflight-scout",
+  "repository": "https://github.com/fenutech/preflight-scout",
+  "license": "AGPL-3.0-only",
+  "keywords": ["qa", "pull-requests", "playwright", "release-readiness", "agent-skills"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Preflight Scout",
+    "shortDescription": "Run focused PR checks and collect release evidence",
+    "longDescription": "Map pull-request changes to product risk, run safe browser missions when a target is available, and report failures, blockers, unknowns, and evidence before merge.",
+    "developerName": "Andrea Fenu",
+    "category": "Developer Tools",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://github.com/fenutech/preflight-scout",
+    "defaultPrompt": [
+      "Use Preflight Scout to assess this repository's current change and summarize release readiness with evidence.",
+      "Use Preflight Scout to turn this pull request into a focused browser-verification mission."
+    ]
+  }
+}

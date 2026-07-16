@@ -1,0 +1,20 @@
+{
+  "name": "preflight-scout",
+  "interface": {
+    "displayName": "Preflight Scout"
+  },
+  "plugins": [
+    {
+      "name": "preflight-scout",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

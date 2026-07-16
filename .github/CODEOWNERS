@@ -1,0 +1,15 @@
+# Default ownership
+* @anfen93
+
+# Release, automation, security, and licensing boundaries
+/.github/ @anfen93
+/action.yml @anfen93
+/scripts/ @anfen93
+/skills/ @anfen93
+/LICENSE @anfen93
+/NOTICE @anfen93
+/COMMERCIAL-LICENSE.md @anfen93
+/CONTRIBUTING.md @anfen93
+/OUTPUT-LICENSE.md @anfen93
+/SECURITY.md @anfen93
+/THIRD_PARTY_NOTICES.md @anfen93

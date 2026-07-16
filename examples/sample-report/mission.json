@@ -1,0 +1,122 @@
+{
+  "id": "mission-checkout-promo",
+  "title": "Validate promo-code totals and feedback",
+  "risk": "high",
+  "summary": "Illustrative fixture only — no live model or browser run. This example checks whether promo-code feedback changes the checkout total.",
+  "affectedAreas": [
+    {
+      "kind": "billing",
+      "name": "Checkout total calculation",
+      "evidence": [
+        "src/checkout.js changes how valid and expired promo codes update the displayed total."
+      ],
+      "risk": "high"
+    },
+    {
+      "kind": "component",
+      "name": "Expired promo feedback",
+      "evidence": [
+        "index.html adds an alert element and src/checkout.js controls its visibility."
+      ],
+      "risk": "medium"
+    }
+  ],
+  "manualChecklist": [
+    "Apply SAVE10 and confirm the total changes from $100.00 to $90.00.",
+    "Apply EXPIRED10 and confirm the error is visible while the total remains $100.00.",
+    "Apply an unknown code and confirm no stale success or error state remains.",
+    "Confirm no payment or order submission occurs during promo validation."
+  ],
+  "edgeCases": [
+    "Apply a valid code after an expired code.",
+    "Apply the same code twice.",
+    "Submit whitespace and mixed-case promo values."
+  ],
+  "automationCandidates": [
+    {
+      "id": "auto-valid-promo",
+      "title": "Valid promo updates the total",
+      "role": "guest_buyer",
+      "startPath": "/",
+      "risk": "high",
+      "reason": [
+        "The pricing branch changed and directly affects the amount shown to the buyer."
+      ],
+      "steps": [
+        {
+          "id": "open-checkout",
+          "instruction": "Open the checkout page.",
+          "action": "goto",
+          "policyLabel": "navigate",
+          "target": "/"
+        },
+        {
+          "id": "enter-valid-code",
+          "instruction": "Enter the valid synthetic promo code.",
+          "action": "fill",
+          "policyLabel": "fill",
+          "target": "testid=promo-code",
+          "value": "SAVE10"
+        },
+        {
+          "id": "apply-valid-code",
+          "instruction": "Apply the promo code.",
+          "action": "click",
+          "policyLabel": "click",
+          "target": "testid=apply-promo"
+        },
+        {
+          "id": "verify-discounted-total",
+          "instruction": "Confirm the discounted total is visible.",
+          "action": "assert_text",
+          "policyLabel": "observe",
+          "target": "testid=order-total",
+          "expected": "Total: $90.00"
+        }
+      ]
+    },
+    {
+      "id": "auto-expired-promo",
+      "title": "Expired promo preserves the total",
+      "role": "guest_buyer",
+      "startPath": "/",
+      "risk": "high",
+      "reason": [
+        "The new expired-code branch must not apply a discount."
+      ],
+      "steps": [
+        {
+          "id": "open-checkout",
+          "instruction": "Open the checkout page.",
+          "action": "goto",
+          "policyLabel": "navigate",
+          "target": "/"
+        },
+        {
+          "id": "enter-expired-code",
+          "instruction": "Enter the expired synthetic promo code.",
+          "action": "fill",
+          "policyLabel": "fill",
+          "target": "testid=promo-code",
+          "value": "EXPIRED10"
+        },
+        {
+          "id": "apply-expired-code",
+          "instruction": "Apply the promo code.",
+          "action": "click",
+          "policyLabel": "click",
+          "target": "testid=apply-promo"
+        },
+        {
+          "id": "verify-expired-feedback",
+          "instruction": "Confirm the expired error is visible and the total is unchanged.",
+          "action": "assert_text",
+          "policyLabel": "observe",
+          "target": "testid=order-total",
+          "expected": "Total: $100.00"
+        }
+      ]
+    }
+  ],
+  "unknowns": []
+}

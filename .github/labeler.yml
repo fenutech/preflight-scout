@@ -1,0 +1,46 @@
+area:core:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/core/**
+
+area:cli:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/cli/**
+
+area:browser:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/browser-runner/**
+
+area:github-action:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/**
+          - action.yml
+          - packages/github-action/**
+
+area:mcp:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/mcp/**
+
+area:agent:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/agent-exec/**
+
+area:skill:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .agents/**
+          - .claude-plugin/**
+          - skills/**
+          - .codex-plugin/**
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/*.md"
+          - docs/**
+          - examples/**

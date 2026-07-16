@@ -1,0 +1,47 @@
+{
+  "summary": "Promo-code validation changed checkout totals and expired-code feedback.",
+  "risk": "high",
+  "changedFiles": [
+    {
+      "path": "index.html",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 0
+    },
+    {
+      "path": "src/checkout.js",
+      "status": "modified",
+      "additions": 5,
+      "deletions": 1
+    }
+  ],
+  "affectedRoutes": [
+    {
+      "path": "/",
+      "file": "index.html",
+      "kind": "page"
+    }
+  ],
+  "affectedAreas": [
+    {
+      "kind": "billing",
+      "name": "Checkout total calculation",
+      "evidence": [
+        "src/checkout.js changes how valid and expired promo codes update the displayed total."
+      ],
+      "risk": "high"
+    },
+    {
+      "kind": "component",
+      "name": "Expired promo feedback",
+      "evidence": [
+        "index.html adds an alert element and src/checkout.js controls its visibility."
+      ],
+      "risk": "medium"
+    }
+  ],
+  "suggestedRoles": [
+    "guest_buyer"
+  ],
+  "unknowns": []
+}

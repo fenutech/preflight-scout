@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' file:; style-src 'unsafe-inline'; base-uri 'none'; connect-src 'none'; font-src 'none'; form-action 'none'; frame-src 'none'; media-src 'none'; object-src 'none'; script-src 'none'" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="generator" content="Preflight Scout" />
+  <meta name="preflight-scout-output-template-license" content="MIT" />
+  <title>Preflight Scout Report</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --void: #02090c;
+      --panel: #050e12;
+      --panel-strong: #071216;
+      --ink: #e8e9e5;
+      --muted: #929a98;
+      --faint: #68716f;
+      --line: #384240;
+      --line-strong: #68706a;
+      --lime: #d0e94e;
+      --red: #ff4b46;
+      --amber: #e9c85b;
+      --mono: ui-monospace, "SFMono-Regular", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html { background: var(--void); }
+    body {
+      margin: 0;
+      min-width: 320px;
+      color: var(--ink);
+      font: 14px/1.6 var(--mono);
+      background: var(--void);
+    }
+    a { color: var(--lime); text-underline-offset: 3px; }
+    a:hover { color: #e2f46d; }
+    code {
+      padding: 2px 6px;
+      border: 1px solid #2d3938;
+      border-radius: 2px;
+      color: #d9ded8;
+      background: #071115;
+      font: inherit;
+      overflow-wrap: anywhere;
+    }
+    main {
+      position: relative;
+      width: min(1120px, calc(100% - 48px));
+      margin: 48px auto 72px;
+      padding: 0 28px 28px;
+      border: 1px solid var(--line-strong);
+      background: #030c0f;
+      box-shadow: 0 24px 72px rgba(0, 0, 0, .34), inset 0 0 48px rgba(16, 44, 48, .12);
+      overflow-wrap: anywhere;
+    }
+    h1, h2, h3, p { overflow-wrap: anywhere; }
+    h1 {
+      margin: 0;
+      font-size: clamp(29px, 4vw, 48px);
+      line-height: 1.08;
+      font-weight: 620;
+      letter-spacing: .08em;
+    }
+    h2 {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 0 0 18px;
+      color: var(--ink);
+      font-size: 17px;
+      line-height: 1.3;
+      font-weight: 620;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    h2::before { content: attr(data-index); color: var(--lime); font-size: 11px; letter-spacing: .12em; }
+    h2::after { content: ""; height: 1px; flex: 1; background: var(--line); }
+    h3 { margin: 0; font-size: 17px; line-height: 1.35; font-weight: 620; }
+    p { margin: 8px 0 14px; }
+    ul { margin: 10px 0 18px; padding-left: 22px; }
+    li { margin: 7px 0; padding-left: 3px; }
+    li::marker { color: var(--lime); }
+    .instrument-rail {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 22px;
+      align-items: center;
+      min-height: 48px;
+      margin: 0 -12px;
+      padding: 0 12px;
+      border-bottom: 1px solid var(--line-strong);
+      color: #9da78e;
+      font-size: 10px;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    .instrument-rail > span { min-width: 0; overflow-wrap: anywhere; }
+    .instrument-rail span:nth-child(2) { text-align: center; }
+    .instrument-head { padding: 30px 2px 28px; border-bottom: 1px dashed var(--line-strong); }
+    .kicker { margin: 0 0 15px; color: var(--lime); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; }
+    .risk-line { display: flex; align-items: center; gap: 12px; margin: 20px 0 0; font-size: 16px; }
+    .risk-badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 34px;
+      padding: 3px 10px;
+      border: 1px solid var(--amber);
+      border-radius: 4px;
+      color: var(--amber);
+      font-size: 16px;
+      letter-spacing: .08em;
+    }
+    .risk-badge.risk-critical, .risk-badge.risk-high { color: var(--red); border-color: #8b2d2a; }
+    .risk-badge.risk-low { color: var(--lime); border-color: #6f7b38; }
+    .decision {
+      margin: 15px 0 12px;
+      font-size: clamp(27px, 5vw, 44px);
+      line-height: 1.1;
+      font-weight: 700;
+      letter-spacing: .055em;
+      text-transform: uppercase;
+    }
+    .decision.hold { color: var(--red); text-shadow: 0 0 22px rgba(255, 75, 70, .1); }
+    .decision.clear { color: var(--lime); text-shadow: 0 0 22px rgba(208, 233, 78, .1); }
+    .decision.pending { color: var(--amber); }
+    .mission-summary { max-width: 760px; color: #b3b9b5; font-size: 15px; }
+    .report-section { padding: 30px 2px 8px; }
+    .readiness-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(260px, .75fr); gap: 30px; }
+    .readiness-copy { margin-top: 0; color: #c5c9c5; }
+    .flight-plan { margin: 0; padding: 18px 20px 12px 38px; border: 1px solid var(--line); background: #061014; }
+    .flight-plan::before { content: "NEXT STEPS"; display: block; margin: 0 0 8px -18px; color: var(--lime); font-size: 10px; letter-spacing: .12em; }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 0;
+      margin: 26px -2px 0;
+      border: 1px solid var(--line);
+      background: #040c0f;
+    }
+    .metric {
+      min-width: 0;
+      padding: 15px 14px;
+      border-right: 1px solid var(--line);
+      break-inside: avoid;
+    }
+    .metric:last-child { border-right: 0; }
+    .metric strong { display: block; margin-top: 5px; color: var(--ink); font-size: 16px; line-height: 1.35; font-weight: 600; }
+    .metric .muted { display: block; color: var(--muted); font-size: 9px; letter-spacing: .09em; text-transform: uppercase; }
+    .metric[data-tone="passed"] strong { color: var(--lime); }
+    .metric[data-tone="failed"] strong { color: var(--red); }
+    .mission-stack { display: grid; gap: 14px; }
+    .mission-card {
+      position: relative;
+      padding: 22px 20px 18px;
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--amber);
+      background: var(--panel);
+      break-inside: avoid;
+    }
+    .mission-card.passed { border-left-color: var(--lime); background: #061014; }
+    .mission-card.failed, .mission-card.blocked { border-left-color: var(--red); background: #100b0d; }
+    .mission-card__head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; align-items: start; }
+    .mission-card.passed h3, .mission-card.passed .status { color: var(--lime); }
+    .mission-card.failed h3, .mission-card.failed .status,
+    .mission-card.blocked h3, .mission-card.blocked .status { color: var(--red); }
+    .status { align-self: center; color: var(--amber); font-size: 13px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+    .meta, .muted { color: var(--muted); }
+    .mission-meta { margin: 7px 0 0; color: var(--muted); font-size: 11px; letter-spacing: .05em; text-transform: uppercase; }
+    .mission-reason { margin-top: 18px; }
+    .mission-reason > p, .evidence > p { color: #aeb4b0; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; }
+    .timeline { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--line); }
+    .timeline p { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; margin: 10px 0; }
+    .step-status { color: var(--amber); font-size: 11px; letter-spacing: .06em; }
+    .step-status.passed { color: var(--lime); }
+    .step-status.failed, .step-status.blocked { color: var(--red); }
+    .step-status.skipped { color: var(--muted); }
+    .evidence { margin-top: 16px; padding-top: 2px; }
+    .evidence-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+    .evidence-file { display: block; padding: 10px 12px; border: 1px solid var(--line); background: #040c0f; overflow-wrap: anywhere; }
+    .evidence-image { margin: 0; padding: 10px; border: 1px solid var(--line); background: #040c0f; }
+    .evidence-image a { display: block; margin-bottom: 9px; overflow-wrap: anywhere; }
+    img { display: block; width: 100%; max-width: 100%; height: auto; border: 1px solid #303b3b; }
+    .checklist { list-style: none; padding: 0; }
+    .checklist li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 10px; align-items: start; padding: 10px 0; border-bottom: 1px dashed #283230; }
+    .checklist input { width: 14px; height: 14px; margin: 5px 0 0; accent-color: var(--lime); }
+    .risk-list { list-style: none; padding: 0; }
+    .risk-list li { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 14px; padding: 10px 0; border-bottom: 1px dashed #283230; }
+    .risk-chip { color: var(--amber); font-weight: 700; letter-spacing: .08em; }
+    .risk-chip.risk-critical, .risk-chip.risk-high { color: var(--red); }
+    .risk-chip.risk-low { color: var(--lime); }
+    .surface-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+    .surface-card { padding: 18px; border: 1px solid var(--line); background: var(--panel); break-inside: avoid; }
+    .surface-card h3 { font-size: 15px; }
+    .surface-meta { color: var(--muted); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+    .compact-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px; }
+    .empty-state { padding: 20px; border: 1px dashed var(--line-strong); background: var(--panel); }
+    .empty-state__title { color: var(--amber); }
+    .illustrative { margin: 22px 2px 0; padding: 12px 15px; border: 1px solid #75672e; color: #d9ca81; background: rgba(103, 84, 20, .12); }
+    .output-license {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 32px;
+      padding: 18px 2px 0;
+      border-top: 1px solid var(--line-strong);
+      color: var(--muted);
+      font-size: 10px;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+    @media (max-width: 840px) {
+      main { width: min(100% - 28px, 1120px); margin-top: 20px; padding-inline: 20px; }
+      .readiness-grid, .compact-grid { grid-template-columns: 1fr; }
+      .summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .metric:nth-child(3) { border-right: 0; }
+      .metric:nth-child(-n + 3) { border-bottom: 1px solid var(--line); }
+    }
+    @media (max-width: 560px) {
+      body { font-size: 13px; }
+      main { width: 100%; margin: 0; padding: 0 16px 22px; border-inline: 0; }
+      .instrument-rail { grid-template-columns: auto 1fr; gap: 12px; }
+      .instrument-rail span:nth-child(2) { display: none; }
+      .instrument-rail span:last-child { text-align: right; }
+      .instrument-head { padding-top: 24px; }
+      .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .metric, .metric:nth-child(3) { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+      .metric:nth-child(even) { border-right: 0; }
+      .metric:nth-last-child(-n + 2) { border-bottom: 0; }
+      .mission-card { padding: 18px 15px; }
+      .mission-card__head { grid-template-columns: 1fr; gap: 7px; }
+      .status { justify-self: start; }
+      .timeline p { grid-template-columns: 1fr; gap: 5px; }
+      .risk-list li { grid-template-columns: 72px minmax(0, 1fr); }
+    }
+    @page { size: A4; margin: 14mm 12mm 16mm; }
+    @media print {
+      html, body { background: var(--void) !important; }
+      body { font-size: 11px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      main { width: 100%; max-width: none; margin: 0; padding: 0 18px 18px; box-shadow: none; }
+      .instrument-head, .metric, .mission-card, .surface-card, .flight-plan, img { break-inside: avoid; }
+      .report-section { padding-top: 22px; }
+      .summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .metric:nth-child(3) { border-right: 0; }
+      .metric:nth-child(-n + 3) { border-bottom: 1px solid var(--line); }
+      .readiness-grid, .compact-grid { grid-template-columns: 1fr; gap: 14px; }
+      img { max-height: 36vh; object-fit: contain; }
+      a { color: var(--lime); text-decoration: none; }
+    }
+  </style>
+</head>
+<body>
+<main class="report-shell">
+  <div class="instrument-rail" aria-label="Report metadata">
+    <span>PS-01 / local run</span>
+    <span>Mission mission-checkout-promo</span>
+    <span>2026-07-13T12:00:00.000Z</span>
+  </div>
+  <header class="instrument-head">
+    <p class="kicker">Preflight Scout / release QA report</p>
+    <h1>PRE-FLIGHT REPORT</h1>
+    <p class="risk-line">Risk <span class="risk-badge risk-high">HIGH</span></p>
+    <p class="decision hold">Do not ship yet</p>
+    <p class="mission-summary">Illustrative fixture only — no live model or browser run. This example checks whether promo-code feedback changes the checkout total.</p>
+  </header>
+
+  <section class="report-section" aria-labelledby="release-readiness">
+    <h2 id="release-readiness" data-index="01">Release result</h2>
+    <div class="readiness-grid">
+      <div>
+        <p class="readiness-copy"><strong>Needs attention before production.</strong> 1 browser check failed; 0 were blocked.</p>
+      </div>
+      <ul class="flight-plan"><li>Review the failed or blocked mission evidence.</li><li>Fix the issue or provide the missing credentials, permissions, approval, or safe test data.</li><li>Rerun Preflight Scout before production.</li></ul>
+    </div>
+  </section>
+  <section class="summary" aria-label="Report summary">
+    <div class="metric"><span class="muted">Affected areas</span><strong>2</strong></div>
+    <div class="metric"><span class="muted">Manual checks</span><strong>4</strong></div>
+    <div class="metric"><span class="muted">Edge cases</span><strong>3</strong></div>
+    <div class="metric"><span class="muted">Suggested browser checks</span><strong>2</strong></div>
+    <div class="metric"><span class="muted">Executed browser checks</span><strong>2</strong></div>
+    <div class="metric" data-tone="failed"><span class="muted">Browser outcomes</span><strong>1 passed, 1 failed, 0 blocked</strong></div>
+  </section>
+
+  <section class="report-section" aria-labelledby="browser-flight-checks">
+    <h2 id="browser-flight-checks" data-index="02">Browser results</h2>
+    <div class="mission-stack"><section class="mission-card passed">
+  <header class="mission-card__head">
+    <div>
+      <h3>Valid promo updates the total</h3>
+      <p class="mission-meta">Risk HIGH · Role guest_buyer · Start /</p>
+    </div>
+    <span class="status passed">passed</span>
+  </header>
+  <div class="mission-reason"><p>Why this mattered</p><ul><li>The pricing branch changed and directly affects the amount shown to the buyer.</li></ul></div>
+  <div class="timeline">
+    <p><strong class="step-status passed">PASSED</strong><span><code>turn-1</code> Opened the checkout at the synthetic local target.</span></p>
+<p><strong class="step-status passed">PASSED</strong><span><code>turn-2</code> SAVE10 reduced the displayed total from $100.00 to $90.00.</span></p>
+  </div>
+  <div class="evidence"><p>Evidence</p><div class="evidence-grid"><a class="evidence-file" href="auto-valid-promo/console-errors.json">console-errors.json</a>
+<a class="evidence-file" href="auto-valid-promo/network-errors.json">network-errors.json</a>
+<a class="evidence-file" href="auto-valid-promo/final-observation.json">final-observation.json</a></div></div>
+
+</section>
+<section class="mission-card failed">
+  <header class="mission-card__head">
+    <div>
+      <h3>Expired promo preserves the total</h3>
+      <p class="mission-meta">Risk HIGH · Role guest_buyer · Start /</p>
+    </div>
+    <span class="status failed">failed</span>
+  </header>
+  <div class="mission-reason"><p>Why this mattered</p><ul><li>The new expired-code branch must not apply a discount.</li></ul></div>
+  <div class="timeline">
+    <p><strong class="step-status passed">PASSED</strong><span><code>turn-1</code> Opened the checkout at the synthetic local target.</span></p>
+<p><strong class="step-status failed">FAILED</strong><span><code>turn-2</code> Expired-code feedback was visible, but the total changed to $90.00; expected $100.00.</span></p>
+  </div>
+  <div class="evidence"><p>Evidence</p><div class="evidence-grid"><a class="evidence-file" href="auto-expired-promo/console-errors.json">console-errors.json</a>
+<a class="evidence-file" href="auto-expired-promo/network-errors.json">network-errors.json</a>
+<a class="evidence-file" href="auto-expired-promo/final-observation.json">final-observation.json</a></div></div>
+
+</section></div>
+  </section>
+
+  <section class="report-section" aria-labelledby="pre-ship-checklist">
+    <h2 id="pre-ship-checklist" data-index="03">Manual checks before production</h2>
+    <ul class="checklist"><li><input type="checkbox" disabled aria-label="Not yet checked" /><span>Apply SAVE10 and confirm the total changes from $100.00 to $90.00.</span></li><li><input type="checkbox" disabled aria-label="Not yet checked" /><span>Apply EXPIRED10 and confirm the error is visible while the total remains $100.00.</span></li><li><input type="checkbox" disabled aria-label="Not yet checked" /><span>Apply an unknown code and confirm no stale success or error state remains.</span></li><li><input type="checkbox" disabled aria-label="Not yet checked" /><span>Confirm no payment or order submission occurs during promo validation.</span></li></ul>
+  </section>
+
+  <section class="report-section" aria-labelledby="risk-radar">
+    <h2 id="risk-radar" data-index="04">Affected areas by risk</h2>
+    <ul class="risk-list"><li><span class="risk-chip risk-high">HIGH</span><span>Checkout total calculation <span class="muted">(billing)</span></span></li><li><span class="risk-chip risk-medium">MEDIUM</span><span>Expired promo feedback <span class="muted">(component)</span></span></li></ul>
+  </section>
+
+  <section class="report-section" aria-labelledby="changed-surface">
+    <h2 id="changed-surface" data-index="05">Changed areas</h2>
+    <div class="surface-grid"><article class="surface-card"><h3>Checkout total calculation</h3><p class="surface-meta">Kind billing · Risk HIGH</p><ul><li>src/checkout.js changes how valid and expired promo codes update the displayed total.</li></ul></article>
+<article class="surface-card"><h3>Expired promo feedback</h3><p class="surface-meta">Kind component · Risk MEDIUM</p><ul><li>index.html adds an alert element and src/checkout.js controls its visibility.</li></ul></article></div>
+  </section>
+
+  <div class="compact-grid">
+    <section class="report-section" aria-labelledby="affected-routes"><h2 id="affected-routes" data-index="06">Affected Routes</h2><ul><li><code>/</code> (page) from <code>index.html</code></li></ul></section>
+    <section class="report-section" aria-labelledby="edge-cases"><h2 id="edge-cases" data-index="07">Edge cases to check</h2><ul><li>Apply a valid code after an expired code.</li><li>Apply the same code twice.</li><li>Submit whitespace and mixed-case promo values.</li></ul></section>
+  </div>
+
+  
+  <footer class="output-license"><span>Local files / review before shipping</span><span>Template material generated by Preflight Scout in this artifact is licensed under MIT. <a href="https://github.com/fenutech/preflight-scout/blob/main/OUTPUT-LICENSE.md">Output license</a>.</span></footer>
+</main>
+</body>
+</html>

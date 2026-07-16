@@ -1,0 +1,31 @@
+# Template only. The Action is not published yet.
+# Replace FULL_RELEASE_COMMIT_SHA with a reviewed 40-character release commit
+# before enabling this workflow.
+name: Preflight Scout
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  statuses: write
+  deployments: read
+
+jobs:
+  preflight_scout:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+      - uses: fenutech/preflight-scout@FULL_RELEASE_COMMIT_SHA
+        with:
+          github-token: ${{ github.token }}
+          mode: analyze-and-run
+          mission-limit: "1"
+          fail-on: needs_attention
+        env:
+          PREFLIGHT_SCOUT_LLM_PROVIDER: openai
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          PREFLIGHT_SCOUT_APP_URL: ${{ vars.PREFLIGHT_SCOUT_APP_URL }}

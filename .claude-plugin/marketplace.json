@@ -1,0 +1,15 @@
+{
+  "name": "preflight-scout",
+  "owner": {
+    "name": "Andrea Fenu",
+    "email": "andrea@fenutech.com"
+  },
+  "description": "Install Preflight Scout for Claude Code.",
+  "plugins": [
+    {
+      "name": "preflight-scout",
+      "source": "./",
+      "description": "Run focused pull-request checks and bounded browser missions, then collect release evidence."
+    }
+  ]
+}

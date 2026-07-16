@@ -1,0 +1,152 @@
+name: Preflight Scout
+description: Pull-request impact reports and browser release verification.
+inputs:
+  github-token:
+    description: GitHub token used to post or update the PR report.
+    required: true
+  mode:
+    description: analyze, analyze-and-run, or run.
+    required: false
+    default: analyze
+  app-url:
+    description: Explicit preview, staging, or localhost URL for browser execution.
+    required: false
+  target:
+    description: Named app target from .preflight-scout/config.yml app.targets.
+    required: false
+  target-env:
+    description: Target URL from .preflight-scout/config.yml when app-url is not set.
+    required: false
+    default: auto
+  detect-deployment-url:
+    description: Use the latest successful GitHub Deployment URL for the PR head SHA when app-url is not set.
+    required: false
+    default: "true"
+  mission-id:
+    description: Run one generated browser mission by id.
+    required: false
+  all-candidates:
+    description: Run every generated browser mission sequentially.
+    required: false
+    default: "false"
+  mission-limit:
+    description: Number of LLM-ranked automation candidates to run when all-candidates is false.
+    required: false
+  max-turns:
+    description: Maximum LLM browser turns per mission.
+    required: false
+  storage-state:
+    description: Playwright storageState JSON to load before browser missions.
+    required: false
+  save-storage-state:
+    description: Path where Playwright storageState JSON should be written after browser missions.
+    required: false
+  trace:
+    description: Capture Playwright trace.zip for each browser mission.
+    required: false
+    default: "true"
+  headless:
+    description: Run Playwright in headless mode.
+    required: false
+    default: "true"
+  output-dir:
+    description: Directory for report, JSON, HTML, screenshots, and run artifacts.
+    required: false
+    default: .preflight-scout/runs/github-action
+  comment:
+    description: Post or update a PR comment with the Markdown report.
+    required: false
+    default: "true"
+  upload-artifact:
+    description: Upload the report bundle as a GitHub Actions artifact.
+    required: false
+    default: "true"
+  artifact-name:
+    description: Custom GitHub Actions artifact name.
+    required: false
+  fail-on:
+    description: CI gate behavior. Use never, needs_attention, or failed_only.
+    required: false
+    default: needs_attention
+outputs:
+  verdict:
+    description: Human-review release verdict.
+    value: ${{ steps.preflight_scout.outputs.verdict }}
+  risk:
+    description: Highest assessed release risk.
+    value: ${{ steps.preflight_scout.outputs.risk }}
+  affected-count:
+    description: Number of affected product areas.
+    value: ${{ steps.preflight_scout.outputs['affected-count'] }}
+  manual-check-count:
+    description: Number of generated manual checks.
+    value: ${{ steps.preflight_scout.outputs['manual-check-count'] }}
+  browser-mission-count:
+    description: Number of generated browser missions.
+    value: ${{ steps.preflight_scout.outputs['browser-mission-count'] }}
+  passed-count:
+    description: Number of passed browser missions.
+    value: ${{ steps.preflight_scout.outputs['passed-count'] }}
+  failed-count:
+    description: Number of failed browser missions.
+    value: ${{ steps.preflight_scout.outputs['failed-count'] }}
+  blocked-count:
+    description: Number of blocked browser missions.
+    value: ${{ steps.preflight_scout.outputs['blocked-count'] }}
+  fail-on:
+    description: Effective CI gate behavior.
+    value: ${{ steps.preflight_scout.outputs['fail-on'] }}
+  artifact-id:
+    description: Uploaded report artifact identifier, when enabled.
+    value: ${{ steps.preflight_scout.outputs['artifact-id'] }}
+  app-url:
+    description: Resolved application URL, when browser execution ran.
+    value: ${{ steps.preflight_scout.outputs['app-url'] }}
+  report-path:
+    description: Markdown report path.
+    value: ${{ steps.preflight_scout.outputs['report-path'] }}
+  report-html-path:
+    description: HTML report path.
+    value: ${{ steps.preflight_scout.outputs['report-html-path'] }}
+  summary-path:
+    description: Machine-readable report summary path.
+    value: ${{ steps.preflight_scout.outputs['summary-path'] }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      with:
+        node-version: "24"
+    - name: Run Preflight Scout
+      id: preflight_scout
+      shell: bash
+      env:
+        PREFLIGHT_SCOUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+        PREFLIGHT_SCOUT_MODE: ${{ inputs.mode }}
+        PREFLIGHT_SCOUT_APP_URL: ${{ inputs.app-url }}
+        PREFLIGHT_SCOUT_TARGET: ${{ inputs.target }}
+        PREFLIGHT_SCOUT_TARGET_ENV: ${{ inputs.target-env }}
+        PREFLIGHT_SCOUT_DETECT_DEPLOYMENT_URL: ${{ inputs.detect-deployment-url }}
+        PREFLIGHT_SCOUT_MISSION_ID: ${{ inputs.mission-id }}
+        PREFLIGHT_SCOUT_ALL_CANDIDATES: ${{ inputs.all-candidates }}
+        PREFLIGHT_SCOUT_MISSION_LIMIT: ${{ inputs.mission-limit }}
+        PREFLIGHT_SCOUT_MAX_TURNS: ${{ inputs.max-turns }}
+        PREFLIGHT_SCOUT_STORAGE_STATE: ${{ inputs.storage-state }}
+        PREFLIGHT_SCOUT_SAVE_STORAGE_STATE: ${{ inputs.save-storage-state }}
+        PREFLIGHT_SCOUT_TRACE: ${{ inputs.trace }}
+        PREFLIGHT_SCOUT_HEADLESS: ${{ inputs.headless }}
+        PREFLIGHT_SCOUT_OUTPUT_DIR: ${{ inputs.output-dir }}
+        PREFLIGHT_SCOUT_COMMENT: ${{ inputs.comment }}
+        PREFLIGHT_SCOUT_UPLOAD_ARTIFACT: ${{ inputs.upload-artifact }}
+        PREFLIGHT_SCOUT_ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        PREFLIGHT_SCOUT_FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        cd "$GITHUB_ACTION_PATH"
+        npm install --global pnpm@11.12.0
+        pnpm install --frozen-lockfile
+        pnpm build
+        if [[ "$PREFLIGHT_SCOUT_MODE" == "analyze-and-run" || "$PREFLIGHT_SCOUT_MODE" == "run" ]]; then
+          pnpm playwright:install:ci
+        fi
+        cd "$GITHUB_WORKSPACE"
+        node "$GITHUB_ACTION_PATH/packages/github-action/dist/index.js"

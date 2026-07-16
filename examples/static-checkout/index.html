@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Preflight Scout Demo Checkout</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 40px;
+        max-width: 720px;
+      }
+      main {
+        display: grid;
+        gap: 16px;
+      }
+      label {
+        display: grid;
+        gap: 6px;
+      }
+      input,
+      button {
+        font: inherit;
+        padding: 10px 12px;
+      }
+      .total {
+        font-weight: 700;
+      }
+      .error {
+        color: #b00020;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Checkout</h1>
+      <p>Demo cart: Preflight Scout Hoodie, $100.00 before discounts.</p>
+      <label>
+        Promo code
+        <input aria-label="Promo code" data-testid="promo-code" />
+      </label>
+      <button data-testid="apply-promo">Apply promo</button>
+      <p class="error" data-testid="promo-error" hidden>Promo code is expired.</p>
+      <p class="total" data-testid="order-total">Total: $100.00</p>
+    </main>
+    <script>
+      const input = document.querySelector('[data-testid="promo-code"]');
+      const error = document.querySelector('[data-testid="promo-error"]');
+      const total = document.querySelector('[data-testid="order-total"]');
+      document.querySelector('[data-testid="apply-promo"]').addEventListener("click", () => {
+        error.hidden = true;
+        if (input.value === "SAVE10") {
+          total.textContent = "Total: $90.00";
+        } else if (input.value === "EXPIRED10") {
+          error.hidden = false;
+          total.textContent = "Total: $100.00";
+        }
+      });
+    </script>
+  </body>
+</html>

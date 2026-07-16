@@ -1,0 +1,120 @@
+name: Bug report
+description: Report a reproducible problem in the CLI, packages, skill, action, or generated artifacts.
+title: "[Bug]: "
+labels:
+  - bug
+  - needs-triage
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Preflight Scout. Remove secrets, cookies, storage state, customer data, and private source before submitting. Security vulnerabilities must use the private reporting link instead.
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      options:
+        - CLI
+        - Core analysis or report
+        - Browser runner
+        - GitHub Action
+        - MCP integration
+        - Agent execution
+        - Agent Skill
+        - Packaging or installation
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Use the package version, Git commit, or release tag you tested.
+      placeholder: v0.1.0 or abc1234
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS, Node.js version, package manager, and install method.
+      placeholder: macOS 15, Node 22.13, npm global @preflight-scout/cli@0.1.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider or agent path
+      description: Never paste a provider key.
+      options:
+        - OpenAI API
+        - Anthropic API
+        - Gemini API
+        - OpenAI-compatible API
+        - Codex CLI
+        - Claude Code
+        - Gemini CLI
+        - Custom agent
+        - No provider involved
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Command or integration
+      description: Show the smallest redacted command, config, or workflow fragment that reproduces the problem.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Create or clone...
+        2. Configure...
+        3. Run...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include the exact error when safe. Attach only redacted artifacts.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add redacted logs, screenshots, a minimal repository, or suspected cause.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues for the same problem.
+          required: true
+        - label: I removed API keys, cookies, storage-state files, customer data, and private source.
+          required: true
+        - label: This is not a security vulnerability requiring private disclosure.
+          required: true

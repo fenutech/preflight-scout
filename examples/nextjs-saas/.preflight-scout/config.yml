@@ -1,0 +1,49 @@
+app:
+  name: Example SaaS
+  type: nextjs
+  localUrl: http://localhost:3000
+  stagingUrl: https://staging.example.com
+  previewUrlSource: vercel
+auth:
+  loginUrl: /login
+  roles:
+    standard_user:
+      usernameEnv: PREFLIGHT_SCOUT_BROWSER_STANDARD_USER_EMAIL
+      passwordEnv: PREFLIGHT_SCOUT_BROWSER_STANDARD_USER_PASSWORD
+      signedInTarget: testid=user-menu
+    admin:
+      usernameEnv: PREFLIGHT_SCOUT_BROWSER_ADMIN_EMAIL
+      passwordEnv: PREFLIGHT_SCOUT_BROWSER_ADMIN_PASSWORD
+      signedInTarget: testid=admin-menu
+criticalFlows:
+  - login
+  - onboarding
+  - checkout
+  - billing
+  - settings
+sensitiveAreas:
+  - auth
+  - payments
+  - permissions
+  - data deletion
+  - webhooks
+dangerousActions:
+  allowed:
+    - login
+    - navigate
+    - add_to_cart
+    - update_test_record
+  requireApproval:
+    - submit_payment
+    - send_email
+    - invite_user
+    - cancel_subscription
+  forbidden:
+    - production_write
+    - real_payment
+    - delete_account
+testData:
+  stripe_test_card: "4242 4242 4242 4242"
+  valid_coupon: SAVE10
+unknowns:
+  - Replace example URLs and env vars with real staging values.

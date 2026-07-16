@@ -1,0 +1,12 @@
+{
+  "name": "preflight-scout",
+  "description": "Map pull-request changes, run focused checks and bounded browser missions, and report release evidence.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Andrea Fenu"
+  },
+  "homepage": "https://github.com/fenutech/preflight-scout",
+  "repository": "https://github.com/fenutech/preflight-scout",
+  "license": "AGPL-3.0-only",
+  "keywords": ["qa", "pull-requests", "playwright", "release-readiness", "agent-skills"]
+}

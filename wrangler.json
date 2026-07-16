@@ -1,0 +1,6 @@
+{
+  "name": "preflight-scout",
+  "pages_build_output_dir": "./apps/site/out",
+  "compatibility_date": "2026-07-16",
+  "send_metrics": false
+}

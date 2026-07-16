@@ -1,0 +1,40 @@
+name: Documentation problem
+description: Report unclear, missing, or incorrect project documentation.
+title: "[Docs]: "
+labels:
+  - documentation
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping make Preflight Scout easier to use. Do not include credentials, private source, customer data, or sensitive paths.
+  - type: input
+    id: location
+    attributes:
+      label: Documentation location
+      description: Link the page or name the file and section.
+      placeholder: README.md, Installation
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is unclear or incorrect?
+      description: Describe the gap and what you expected to learn.
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested improvement
+      description: Optional wording, example, or structure that would help.
+    validations:
+      required: false
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed credentials, cookies, storage state, customer data, and private source.
+          required: true

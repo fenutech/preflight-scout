@@ -1,0 +1,49 @@
+{
+  "name": "@preflight-scout/github-action",
+  "version": "0.1.0",
+  "description": "GitHub Action entrypoint for Preflight Scout PR reports and browser evidence.",
+  "keywords": ["preflight-scout", "release-qa", "pull-request", "playwright", "agent-skill"],
+  "author": "Andrea Fenu",
+  "license": "AGPL-3.0-only",
+  "homepage": "https://github.com/fenutech/preflight-scout#readme",
+  "bugs": { "url": "https://github.com/fenutech/preflight-scout/issues" },
+  "type": "module",
+  "engines": { "node": ">=22.13.0" },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "OUTPUT-LICENSE.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "publishConfig": { "access": "public", "provenance": true },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fenutech/preflight-scout.git",
+    "directory": "packages/github-action"
+  },
+  "scripts": {
+    "build": "node ../../scripts/package-build-integrity.mjs clean && tsc -p tsconfig.json && node ../../scripts/package-build-integrity.mjs write",
+    "prepack": "node ../../scripts/package-build-integrity.mjs verify",
+    "prepublishOnly": "node ../../scripts/package-build-integrity.mjs verify"
+  },
+  "dependencies": {
+    "@actions/artifact": "^6.2.1",
+    "@actions/core": "^3.0.1",
+    "@actions/github": "^9.1.1",
+    "@preflight-scout/browser-runner": "workspace:^",
+    "@preflight-scout/core": "workspace:^"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1"
+  }
+}

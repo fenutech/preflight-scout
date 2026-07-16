@@ -1,0 +1,7 @@
+interface:
+  display_name: "Preflight Scout"
+  short_description: "Run focused PR checks and collect release evidence"
+  default_prompt: "Use $preflight-scout to inspect this repository's current diff. Run setup diagnostics, build the QA plan, ask before browser execution, and report what passed, failed, or remains untested with evidence paths."
+
+policy:
+  allow_implicit_invocation: true

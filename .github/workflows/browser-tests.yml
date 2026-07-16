@@ -1,0 +1,26 @@
+name: Browser Tests (manual)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: browser-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  browser-tests:
+    name: Run browser tests manually
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          node-version: 24
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm playwright:install:ci
+      - run: pnpm build
+      - run: pnpm test:browser

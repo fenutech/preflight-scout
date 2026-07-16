@@ -1,0 +1,80 @@
+name: Feature request
+description: Propose a focused improvement to a real QA or release workflow.
+title: "[Feature]: "
+labels:
+  - enhancement
+  - needs-triage
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Start with the user problem and release decision this would improve. Provider-specific ideas should explain whether the behavior belongs in Preflight Scout or in the provider runtime.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What QA or release task is difficult today, for whom, and how often?
+      placeholder: When a maintainer reviews..., they cannot..., which causes...
+    validations:
+      required: true
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe observable behavior, not only an implementation.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Primary surface
+      options:
+        - CLI
+        - Core analysis or report
+        - Browser runner
+        - GitHub Action
+        - MCP integration
+        - Agent execution
+        - Agent Skill
+        - Packaging or installation
+        - Documentation
+        - New integration
+    validations:
+      required: true
+
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Example workflow
+      description: Show the inputs, command or trigger, expected artifacts, and human decision.
+      placeholder: |
+        Given...
+        When...
+        Then...
+    validations:
+      required: true
+
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety, privacy, and compatibility
+      description: Note credentials, browser actions, external services, output compatibility, or migration concerns.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues for related work.
+          required: true
+        - label: I can provide a minimal example or help verify the result.
+          required: false

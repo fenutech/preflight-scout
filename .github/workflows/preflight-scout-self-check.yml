@@ -1,0 +1,99 @@
+name: Preflight Scout Self-check
+
+on:
+  pull_request_target:
+    paths:
+      - ".github/workflows/preflight-scout-self-check.yml"
+      - "action.yml"
+      - "packages/**"
+      - "examples/**"
+      - "docs/**"
+      - "README.md"
+
+concurrency:
+  group: preflight-scout-self-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  deployments: read
+  issues: write
+  pull-requests: write
+  statuses: write
+
+jobs:
+  preflight-scout-action:
+    name: Run Preflight Scout on this PR
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout PR head for analysis
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout trusted default-branch Action
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .preflight-scout-trusted-action
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect opt-in and LLM secret
+        id: llm
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          PREFLIGHT_SCOUT_SELF_CHECK_GITHUB: ${{ vars.PREFLIGHT_SCOUT_SELF_CHECK_GITHUB }}
+        shell: bash
+        run: |
+          if [[ "$PREFLIGHT_SCOUT_SELF_CHECK_GITHUB" == "true" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [[ -n "$OPENAI_API_KEY" ]]; then
+            echo "has_llm=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_llm=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Explain disabled self-check
+        if: steps.llm.outputs.enabled != 'true'
+        shell: bash
+        run: |
+          {
+            echo "## Preflight Scout self-check disabled"
+            echo ""
+            echo "Set the PREFLIGHT_SCOUT_SELF_CHECK_GITHUB repository variable to true to opt in to hosted LLM runs."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Explain missing provider secret
+        if: steps.llm.outputs.enabled == 'true' && steps.llm.outputs.has_llm != 'true'
+        shell: bash
+        run: |
+          {
+            echo "## Preflight Scout self-check skipped"
+            echo ""
+            echo "The OPENAI_API_KEY Actions secret is not configured."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run trusted Preflight Scout Action
+        if: steps.llm.outputs.enabled == 'true' && steps.llm.outputs.has_llm == 'true'
+        uses: ./.preflight-scout-trusted-action
+        with:
+          github-token: ${{ github.token }}
+          mode: analyze
+          fail-on: never
+          comment: "true"
+          upload-artifact: "true"
+          artifact-name: preflight-scout-self-check-${{ github.run_id }}
+        env:
+          PREFLIGHT_SCOUT_LLM_PROVIDER: openai
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

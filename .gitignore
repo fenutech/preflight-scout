@@ -1,0 +1,29 @@
+node_modules/
+.pnpm-store/
+dist/
+*.tsbuildinfo
+.turbo/
+apps/site/.next/
+apps/site/out/
+apps/site/.npm-cache/
+apps/site/public/example-report/
+.wrangler/
+.dev.vars*
+.env
+.env.*
+!.env.example
+!.env.preflight-scout.example
+# Legacy pre-release state may still contain secrets; never make it stageable.
+.env.preflight.local
+.DS_Store
+coverage/
+playwright-report/
+test-results/
+.preflight-scout/runs/
+.preflight-scout/auth/
+.preflight-scout/approvals.local.yml
+.preflight-scout/package-check/
+.preflight-scout-trusted-action/
+# Legacy pre-release state may still contain auth, approvals, and evidence.
+.preflight/
+.preflight-trusted-action/

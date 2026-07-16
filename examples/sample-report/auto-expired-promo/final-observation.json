@@ -1,0 +1,41 @@
+{
+  "url": "http://127.0.0.1:4173/",
+  "title": "Generic Shop Checkout",
+  "text": "Checkout\nDemo cart: Preflight Scout Hoodie, $100.00\nPromo code\nApply promo\nPromo code is expired.\nTotal: $90.00",
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "scroll": {
+    "x": 0,
+    "y": 0,
+    "width": 1280,
+    "height": 720
+  },
+  "consoleErrors": [],
+  "networkErrors": [],
+  "interactive": [
+    {
+      "tag": "input",
+      "text": "Promo code",
+      "label": "Promo code",
+      "testid": "promo-code"
+    },
+    {
+      "tag": "button",
+      "text": "Apply promo",
+      "testid": "apply-promo"
+    },
+    {
+      "tag": "p",
+      "role": "alert",
+      "text": "Promo code is expired.",
+      "testid": "promo-error"
+    },
+    {
+      "tag": "p",
+      "text": "Total: $90.00",
+      "testid": "order-total"
+    }
+  ]
+}

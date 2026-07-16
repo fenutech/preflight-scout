@@ -1,0 +1,54 @@
+[
+  {
+    "missionId": "auto-valid-promo",
+    "status": "passed",
+    "results": [
+      {
+        "stepId": "turn-1",
+        "status": "passed",
+        "message": "Opened the checkout at the synthetic local target."
+      },
+      {
+        "stepId": "turn-2",
+        "status": "passed",
+        "message": "SAVE10 reduced the displayed total from $100.00 to $90.00."
+      }
+    ],
+    "artifacts": [
+      "auto-valid-promo/console-errors.json",
+      "auto-valid-promo/network-errors.json",
+      "auto-valid-promo/final-observation.json"
+    ],
+    "evidence": {
+      "consolePath": "auto-valid-promo/console-errors.json",
+      "networkPath": "auto-valid-promo/network-errors.json",
+      "finalObservationPath": "auto-valid-promo/final-observation.json"
+    }
+  },
+  {
+    "missionId": "auto-expired-promo",
+    "status": "failed",
+    "results": [
+      {
+        "stepId": "turn-1",
+        "status": "passed",
+        "message": "Opened the checkout at the synthetic local target."
+      },
+      {
+        "stepId": "turn-2",
+        "status": "failed",
+        "message": "Expired-code feedback was visible, but the total changed to $90.00; expected $100.00."
+      }
+    ],
+    "artifacts": [
+      "auto-expired-promo/console-errors.json",
+      "auto-expired-promo/network-errors.json",
+      "auto-expired-promo/final-observation.json"
+    ],
+    "evidence": {
+      "consolePath": "auto-expired-promo/console-errors.json",
+      "networkPath": "auto-expired-promo/network-errors.json",
+      "finalObservationPath": "auto-expired-promo/final-observation.json"
+    }
+  }
+]
