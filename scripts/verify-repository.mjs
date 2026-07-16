@@ -24,7 +24,6 @@ const requiredFiles = [
   ".github/workflows/labeler.yml",
   ".github/workflows/preflight-scout-self-check.yml",
   ".github/workflows/publish.yml",
-  ".github/workflows/recover-npm-v0.1.0.yml",
   ".github/workflows/release-candidate.yml",
   ".agents/plugins/marketplace.json",
   ".claude-plugin/marketplace.json",
@@ -208,6 +207,8 @@ const requiredPublishWorkflowMarkers = [
   "--mode bootstrap-token",
   "--mode trusted-publishing",
   "verify-live-install:",
+  "packages=(core agent-exec browser-runner mcp github-action cli)",
+  "for _attempt in {1..60}; do",
   "npm install --global --prefix",
   '"@preflight-scout/cli@${VERSION}"',
   "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"

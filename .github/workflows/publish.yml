@@ -229,13 +229,21 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          for _attempt in {1..12}; do
-            if [[ "$(npm view "@preflight-scout/cli@${VERSION}" version --registry=https://registry.npmjs.org/ 2>/dev/null || true)" == "$VERSION" ]]; then
+          packages=(core agent-exec browser-runner mcp github-action cli)
+          missing=()
+          for _attempt in {1..60}; do
+            missing=()
+            for package in "${packages[@]}"; do
+              if [[ "$(npm view "@preflight-scout/${package}@${VERSION}" version --registry=https://registry.npmjs.org/ 2>/dev/null || true)" != "$VERSION" ]]; then
+                missing+=("@preflight-scout/${package}@${VERSION}")
+              fi
+            done
+            if (( ${#missing[@]} == 0 )); then
               exit 0
             fi
             sleep 5
           done
-          echo "@preflight-scout/cli@${VERSION} did not become readable from the public registry." >&2
+          printf 'These packages did not become readable from the public registry: %s\n' "${missing[*]}" >&2
           exit 1
 
       - name: Install the exact public CLI with npm
