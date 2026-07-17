@@ -68,6 +68,7 @@ try {
   assert.equal(published[0][0], "publish");
   assert.equal(published[0][1], `./${manifest.packages[0].file}`);
   assert.ok(published[0].includes("--provenance"));
+  assert.ok(published[0].includes("--registry=https://registry.npmjs.org/"));
 
   const mismatch = new Map(manifest.packages.map((item) => [item.name, item.integrity]));
   mismatch.delete(PUBLISH_ORDER[0]);

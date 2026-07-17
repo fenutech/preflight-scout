@@ -359,6 +359,9 @@ for (const forbiddenPublishJobCode of ["actions/checkout@", "./.github/actions/s
     failures.push(`publish.yml privileged job must not run repository install/build code: ${forbiddenPublishJobCode}`);
   }
 }
+if (publishJob.includes("registry-url:")) {
+  failures.push("publish.yml privileged job must not configure setup-node registry-url because it injects NODE_AUTH_TOKEN into trusted publishing.");
+}
 if (
   !liveInstallJob.includes("needs: [validate, publish]") ||
   !liveInstallJob.includes('"@preflight-scout/cli@${VERSION}"') ||

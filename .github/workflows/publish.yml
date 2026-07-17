@@ -156,11 +156,10 @@ jobs:
         with:
           node-version: "24.15.0"
           package-manager-cache: false
-          registry-url: https://registry.npmjs.org
 
       - name: Install the pinned OIDC-capable npm CLI without lifecycle scripts
         run: |
-          npm install --global npm@11.18.0 --ignore-scripts
+          npm install --global npm@11.18.0 --ignore-scripts --registry=https://registry.npmjs.org/
           [[ "$(npm --version)" == "11.18.0" ]]
 
       - name: Download only this run's validated candidate

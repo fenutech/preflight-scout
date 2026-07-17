@@ -1,6 +1,6 @@
 {
   "name": "@preflight-scout/agent-exec",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "OpenAI Codex, Claude Code, Gemini CLI, and custom agent handoffs for Preflight Scout missions.",
   "keywords": ["preflight-scout", "release-qa", "pull-request", "playwright", "agent-skill"],
   "author": "Andrea Fenu",
