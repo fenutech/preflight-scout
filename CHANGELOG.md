@@ -8,6 +8,10 @@ All notable changes to Preflight Scout are documented here. This project follows
 
 ### Fixed
 
+- Kept automated release preparation within the GitHub Actions token boundary
+  by requiring an explicit Release Candidate version instead of rewriting a
+  workflow-file default on every release.
+
 - Bound live browser assertion decisions to the exact target and expected text
   from the reviewed mission, so an LLM-supplied locator cannot weaken the
   assertion or incorrectly block execution when the reviewed assertion is

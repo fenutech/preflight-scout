@@ -29,7 +29,7 @@ async function testSuccessfulPreparation() {
     currentVersion: "1.2.3",
     targetVersion: "1.3.0",
     releaseDate: "2026-07-18",
-    filesChanged: 20,
+    filesChanged: 19,
     manifestsChanged: 7,
     packageReadmesChanged: 3
   });
@@ -47,7 +47,7 @@ async function testSuccessfulPreparation() {
   }
   assert.match(await read(root, "packages/cli/src/index.ts"), /\.version\("1\.3\.0"\)/);
   assert.match(await read(root, "packages/mcp/src/index.ts"), /version: "1\.3\.0"/);
-  assert.match(await read(root, ".github/workflows/release-candidate.yml"), /default: "1\.3\.0"/);
+  assert.doesNotMatch(await read(root, ".github/workflows/release-candidate.yml"), /default:/);
   assert.match(await read(root, "docs/release-checklist.md"), /VERSION="1\.3\.0"/);
 
   for (const file of [
@@ -192,7 +192,7 @@ async function createFixture(version, unreleased) {
       "  workflow_dispatch:",
       "    inputs:",
       "      version:",
-      `        default: "${version}"`,
+      "        required: true",
       ""
     ].join("\n"),
     "README.md": installDocument,
