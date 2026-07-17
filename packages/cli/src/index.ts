@@ -463,6 +463,7 @@ program
     progress("Loading environment and QA contract");
     await loadEnvFile(root, options.envFile);
     const contract = await loadContract(root);
+    const outputDir = await resolveAnalysisOutputDir(root, options.outputDir, contract.defaults?.outputDir);
     const analysisDir = options.analysisDir ? resolveRepoPath(root, options.analysisDir) : undefined;
     const analysis = await resolveReviewedAnalysis({
       analysisDir,
@@ -478,9 +479,6 @@ program
     const appUrl = resolveTargetUrl(contract, { url: options.url, target: options.target, env: options.env ?? contract.defaults?.targetEnv ?? "auto" });
     const llm = createDefaultLLMFromEnv();
     if (!llm) throw new Error("Browser execution requires an LLM provider.");
-    const outputDir = options.outputDir
-      ? resolveRepoPath(root, options.outputDir)
-      : await resolveContractOutputDir(root, contract.defaults?.outputDir ?? ".preflight-scout/runs/latest");
     const selectedMissions = selectAutomationCandidates(analysis.mission, {
       missionId: options.missionId,
       allCandidates: options.allCandidates || contract.defaults?.allCandidates,

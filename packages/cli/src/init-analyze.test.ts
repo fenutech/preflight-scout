@@ -59,8 +59,8 @@ describe("init followed by analyze", () => {
     await expect(readFile(agentLog, "utf8")).resolves.toBe("qa_contract\nimpact_map\nqa_mission\n");
   }, 30_000);
 
-  it("rejects a legacy boundary-level output directory before starting analysis model calls", async () => {
-    const parent = await mkdtemp(path.join(tmpdir(), "preflight-scout-init-analyze-fail-fast-"));
+  it.each(["analyze", "run"] as const)("%s rejects a legacy boundary-level output directory before starting model calls", async (command) => {
+    const parent = await mkdtemp(path.join(tmpdir(), "preflight-scout-output-fail-fast-"));
     tempDirs.push(parent);
     const demo = await createGenericDemoRepo({ output: path.join(parent, "repo") });
     const configPath = path.join(demo.root, ".preflight-scout", "config.yml");
@@ -76,7 +76,7 @@ describe("init followed by analyze", () => {
     await writeFile(agentScript, `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "started");\n`);
 
     await expect(runCli([
-      "analyze",
+      command,
       "--root", demo.root,
       "--base", "HEAD~1",
       "--head", "HEAD"
