@@ -192,6 +192,34 @@ describe("writeInitialContract", () => {
     expect(written.auth?.roles?.qa_user?.usernameEnv).toBe("PREFLIGHT_SCOUT_BROWSER_QA_EMAIL");
   });
 
+  it("replaces an init-model output directory with the guarded default", async () => {
+    const repoIndex = await indexRepository(dir);
+    const llm = {
+      async completeJson() {
+        return {
+          ...contract,
+          defaults: { outputDir: ".preflight-scout/runs" }
+        };
+      }
+    };
+
+    const written = await writeInitialContract(dir, repoIndex, llm);
+    const loaded = await loadContract(dir);
+
+    expect(written.defaults?.outputDir).toBe(".preflight-scout/runs/latest");
+    expect(loaded.defaults?.outputDir).toBe(".preflight-scout/runs/latest");
+  });
+
+  it("preserves a human-supplied init output directory", async () => {
+    const repoIndex = await indexRepository(dir);
+
+    const written = await writeInitialContract(dir, repoIndex, undefined, {
+      outputDir: ".preflight-scout/runs/reviewed"
+    });
+
+    expect(written.defaults?.outputDir).toBe(".preflight-scout/runs/reviewed");
+  });
+
   it("sends only a redacted repository index to the init LLM", async () => {
     const secret = ["sk", "test", "abcdefghijklmnopqrstuvwxyz"].join("_");
     await writeFile(path.join(dir, "package.json"), `{\"privateToken\":\"${secret}\"}\n`);

@@ -207,7 +207,10 @@ function applyInitialContractOptions(contract: QAContract, options: InitialContr
     ...(options.baseRef ? { baseRef: options.baseRef } : {}),
     ...(options.target ? { target: options.target } : {}),
     ...(options.targetEnv ? { targetEnv: options.targetEnv } : {}),
-    ...(options.outputDir ? { outputDir: options.outputDir } : {})
+    // The init model may describe QA policy, but it must not choose a
+    // filesystem destination. Keep the generated default inside the guarded
+    // runs boundary unless the human supplied an explicit init option.
+    outputDir: options.outputDir ?? DEFAULT_CONTRACT.defaults?.outputDir
   };
   return QAContractSchema.parse(next);
 }
@@ -335,7 +338,7 @@ Return only valid JSON matching QAContract:
 {
   "app": {"name":"string optional","type":"string optional","url":"default app URL optional","localUrl":"localhost/dev URL optional","stagingUrl":"deployed staging URL optional","targets":{"frontend":{"url":"optional","localUrl":"optional","stagingUrl":"optional","description":"optional"}},"previewUrlSource":"vercel|netlify|github_deployment|manual|unknown"},
   "auth": {"loginUrl":"string optional","storageState":"Playwright storageState path optional","saveStorageState":"path optional","roles":{"roleName":{"usernameEnv":"string optional","passwordEnv":"string optional","storageState":"path optional","signedInTarget":"exact locator proving this role is signed in, for example testid=user-menu","notes":"string optional"}}},
-  "defaults": {"baseRef":"git base ref optional","target":"frontend optional","targetEnv":"auto|local|staging optional","outputDir":"run artifact dir optional","maxTurns":15,"missionLimit":2,"headless":true,"trace":true,"allCandidates":false,"storageState":"path optional","saveStorageState":"path optional"},
+  "defaults": {"baseRef":"git base ref optional","target":"frontend optional","targetEnv":"auto|local|staging optional","outputDir":".preflight-scout/runs/latest","maxTurns":15,"missionLimit":2,"headless":true,"trace":true,"allCandidates":false,"storageState":"path optional","saveStorageState":"path optional"},
   "criticalFlows": ["string"],
   "sensitiveAreas": ["string"],
   "dangerousActions": {"allowed":["string"],"requireApproval":["string"],"forbidden":["string"]},
@@ -346,6 +349,7 @@ Return only valid JSON matching QAContract:
 Figure out the initial QA contract from repo facts. Be bold where the repo gives evidence, but mark unknowns where humans must confirm.
 Prefer short flow names that identify durable product journeys, such as "public_codex_browse", "admin_login", or "checkout_happy_path"; do not put full sentences in criticalFlows.
 Do not invent secrets. Use env var names for credentials.
+Always return ".preflight-scout/runs/latest" for defaults.outputDir. Preflight Scout treats artifact paths as trusted local policy and will replace model-proposed values.
 This config is a draft for humans to review.`
     },
     {
