@@ -17,8 +17,8 @@ All notable changes to Preflight Scout are documented here. This project follows
 
 - Kept LLM-generated init contracts on the guarded
   `.preflight-scout/runs/latest` artifact path unless a human supplies an
-  explicit init path, and made analysis reject unsafe legacy paths before
-  starting either model call.
+  explicit init path, and made both `analyze` and unreviewed `run` planning
+  reject unsafe legacy paths before starting either model call.
 
 ## [0.1.0] - 2026-07-16
 
