@@ -109,6 +109,27 @@ describe("doctor", () => {
     expect(rendered).not.toContain("doctor-pass");
   });
 
+  it("fails when the explicitly selected target environment is unavailable", async () => {
+    const demo = await createGenericDemoRepo({ output: path.join(dir, "shop") });
+    process.env.PREFLIGHT_SCOUT_LLM_PROVIDER = "codex-exec";
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const report = await runDoctor({
+      root: demo.root,
+      env: "staging",
+      timeoutMs: 100,
+      checkBrowser: async () => undefined
+    });
+
+    expect(report.checks.find((check) => check.id === "target_url")).toMatchObject({
+      status: "fail",
+      message: "Selected target environment is unavailable."
+    });
+    expect(report.ok).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("redacts and caps target request failures", async () => {
     const demo = await createGenericDemoRepo({ output: path.join(dir, "shop") });
     process.env.PREFLIGHT_SCOUT_LLM_PROVIDER = "codex-exec";

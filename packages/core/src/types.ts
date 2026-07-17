@@ -61,9 +61,17 @@ export interface RepoRoute {
   kind: "page" | "api" | "unknown";
 }
 
+export interface RepoFileInventoryCoverage {
+  maxFiles: number;
+  includedFiles: number;
+  complete: boolean;
+  note?: string;
+}
+
 export interface RepoIndex {
   root: string;
   files: string[];
+  fileInventoryCoverage?: RepoFileInventoryCoverage;
   manifests: Record<string, string>;
   packageManager?: "npm" | "pnpm" | "yarn" | "bun";
   frameworks: string[];

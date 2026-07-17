@@ -26,4 +26,38 @@ describe("indexRepository", () => {
     expect(index.manifests["package.json"]).toContain('"fixture"');
     expect(index.manifests).not.toHaveProperty("pnpm-lock.yaml");
   });
+
+  it("marks an inventory at the file limit as complete", async () => {
+    const repository = await mkdtemp(path.join(tmpdir(), "preflight-scout-repo-index-"));
+    repositories.push(repository);
+    await writeFile(path.join(repository, "one.ts"), "export {};\n");
+    await writeFile(path.join(repository, "two.ts"), "export {};\n");
+
+    const index = await indexRepository(repository, { maxFiles: 2 });
+
+    expect(index.files).toEqual(["one.ts", "two.ts"]);
+    expect(index.fileInventoryCoverage).toEqual({
+      complete: true,
+      includedFiles: 2,
+      maxFiles: 2
+    });
+  });
+
+  it("marks an inventory beyond the file limit as incomplete", async () => {
+    const repository = await mkdtemp(path.join(tmpdir(), "preflight-scout-repo-index-"));
+    repositories.push(repository);
+    await writeFile(path.join(repository, "one.ts"), "export {};\n");
+    await writeFile(path.join(repository, "two.ts"), "export {};\n");
+    await writeFile(path.join(repository, "three.ts"), "export {};\n");
+
+    const index = await indexRepository(repository, { maxFiles: 2 });
+
+    expect(index.files).toEqual(["one.ts", "three.ts"]);
+    expect(index.fileInventoryCoverage).toMatchObject({
+      complete: false,
+      includedFiles: 2,
+      maxFiles: 2
+    });
+    expect(index.fileInventoryCoverage.note).toContain("additional safe files were omitted");
+  });
 });

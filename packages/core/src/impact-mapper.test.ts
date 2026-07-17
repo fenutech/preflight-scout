@@ -2,7 +2,12 @@ import { link, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { createImpactMap, MAX_IMPACT_PROMPT_CHARS } from "./impact-mapper.js";
+import {
+  appendRequiredUnknown,
+  createImpactMap,
+  INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN,
+  MAX_IMPACT_PROMPT_CHARS
+} from "./impact-mapper.js";
 import type { LLMClient, LLMMessage, StructuredJsonOptions } from "./llm.js";
 import { indexRepository } from "./repo-indexer.js";
 import type { ImpactMap, PullRequestContext, QAContract, RepoIndex } from "./types.js";
@@ -90,6 +95,71 @@ describe("impact prompt budgets", () => {
       await rm(tempRoot, { recursive: true, force: true });
     }
   });
+
+  it("deterministically carries incomplete repository inventory into the model context and result", async () => {
+    const llm = new CapturingImpactLLM();
+    const repoIndex: RepoIndex = {
+      root: ".",
+      files: ["src/one.ts", "src/two.ts"],
+      fileInventoryCoverage: {
+        maxFiles: 2,
+        includedFiles: 2,
+        complete: false,
+        note: "Repository inventory reached the 2-file limit; additional safe files were omitted."
+      },
+      manifests: {},
+      frameworks: [],
+      routes: [],
+      components: [],
+      tests: [],
+      configFiles: [],
+      integrationHints: []
+    };
+
+    const result = await createImpactMap({
+      repoIndex,
+      contract,
+      pullRequest: { files: [] },
+      llm
+    });
+
+    const payload = JSON.parse(llm.messages.find((message) => message.role === "user")?.content ?? "{}") as any;
+    expect(payload.repoIndex.fileInventoryCoverage).toMatchObject({ complete: false, maxFiles: 2 });
+    expect(result.unknowns).toContain(INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN);
+  });
+
+  it("reserves schema space for deterministic inventory coverage", async () => {
+    const llm = new CapturingImpactLLM(Array.from({ length: 200 }, (_, index) => `provider unknown ${index}`));
+    const repoIndex: RepoIndex = {
+      root: ".",
+      files: [],
+      fileInventoryCoverage: { maxFiles: 0, includedFiles: 0, complete: false },
+      manifests: {},
+      frameworks: [],
+      routes: [],
+      components: [],
+      tests: [],
+      configFiles: [],
+      integrationHints: []
+    };
+
+    const result = await createImpactMap({ repoIndex, contract, pullRequest: { files: [] }, llm });
+
+    expect(result.unknowns).toHaveLength(200);
+    expect(result.unknowns).toContain(INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN);
+  });
+
+  it("preserves a required unknown even when it originally appears beyond the limit", () => {
+    const unknowns = [
+      ...Array.from({ length: 200 }, (_, index) => `provider unknown ${index}`),
+      INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN
+    ];
+
+    const result = appendRequiredUnknown(unknowns, INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN, 200);
+
+    expect(result).toHaveLength(200);
+    expect(result.at(-1)).toBe(INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN);
+  });
 });
 
 const contract: QAContract = {
@@ -104,6 +174,8 @@ const contract: QAContract = {
 class CapturingImpactLLM implements LLMClient {
   messages: LLMMessage[] = [];
 
+  constructor(private readonly unknowns = ["Changed-file and repository context was truncated by the prompt budget."]) {}
+
   async completeJson<T>(messages: LLMMessage[], _options: StructuredJsonOptions<T>): Promise<T> {
     this.messages = messages;
     return {
@@ -113,7 +185,7 @@ class CapturingImpactLLM implements LLMClient {
       affectedRoutes: [],
       affectedAreas: [],
       suggestedRoles: [],
-      unknowns: ["Changed-file and repository context was truncated by the prompt budget."]
+      unknowns: this.unknowns
     } as ImpactMap as T;
   }
 }

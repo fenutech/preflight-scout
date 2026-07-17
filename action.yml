@@ -15,11 +15,11 @@ inputs:
     description: Named app target from .preflight-scout/config.yml app.targets.
     required: false
   target-env:
-    description: Target URL from .preflight-scout/config.yml when app-url is not set.
+    description: Exact local/staging URL from config, or automatic URL discovery when set to auto.
     required: false
     default: auto
   detect-deployment-url:
-    description: Use the latest successful GitHub Deployment URL for the PR head SHA when app-url is not set.
+    description: With target-env auto, use the latest successful GitHub Deployment URL when app-url is not set.
     required: false
     default: "true"
   mission-id:

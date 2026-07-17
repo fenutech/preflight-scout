@@ -87,8 +87,8 @@ secret exists.
 - `mode`: `analyze`, `analyze-and-run`, or `run`.
 - `app-url`: explicit preview/staging/local URL.
 - `target`: named `app.targets` entry from `.preflight-scout/config.yml`.
-- `target-env`: `auto`, `local`, or `staging` from `.preflight-scout/config.yml`.
-- `detect-deployment-url`: when true, reads the latest successful GitHub Deployment URL for the PR head SHA.
+- `target-env`: `local` or `staging` requires that exact URL in `.preflight-scout/config.yml`; `auto` enables fallback discovery.
+- `detect-deployment-url`: when true and `target-env` is `auto`, reads the latest successful GitHub Deployment URL for the PR head SHA.
 - `mission-id`: run one generated browser mission.
 - `mission-limit`: run the first N LLM-ranked browser missions when `all-candidates` is false. Defaults to `defaults.missionLimit`, then 1 in hosted CI.
 - `all-candidates`: run every generated browser mission sequentially.
@@ -99,7 +99,7 @@ secret exists.
 - `upload-artifact`: upload the report bundle.
 - `fail-on`: CI gate behavior:
   - `never`: never fail the workflow because of QA findings.
-  - `needs_attention`: fail on failed or blocked browser missions.
+  - `needs_attention`: fail on failed or blocked browser missions, or incomplete repository coverage.
   - `failed_only`: fail only when at least one browser mission failed.
 
 ## PR Comment
@@ -137,9 +137,9 @@ The full report stays in the uploaded artifact so the PR thread remains readable
 Browser mode resolves the target URL in this order:
 
 1. `app-url` input
-2. `PREFLIGHT_SCOUT_APP_URL` environment variable
-3. latest successful GitHub Deployment URL for the PR head SHA
-4. `.preflight-scout/config.yml` through `target` and `target-env`
+2. with `target-env: auto`, `PREFLIGHT_SCOUT_APP_URL`
+3. with `target-env: auto`, the latest successful GitHub Deployment URL for the PR head SHA
+4. `.preflight-scout/config.yml` through `target` and `target-env`; explicit `local` or `staging` fails when that exact URL is absent
 
 This is deterministic environment discovery. The LLM still owns product reasoning and browser decisions.
 

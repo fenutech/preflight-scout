@@ -6,6 +6,15 @@ All notable changes to Preflight Scout are documented here. This project follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Made explicit local and staging target selection fail closed when the selected
+  environment has no configured URL, instead of falling through to another
+  environment.
+- Added deterministic repository-inventory coverage metadata so analyses at
+  the file limit remain distinguishable from silently truncated inventories,
+  and carry incomplete coverage into model context and final report unknowns.
+
 ## [0.1.4] - 2026-07-17
 
 ### Fixed

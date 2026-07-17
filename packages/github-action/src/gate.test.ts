@@ -35,5 +35,6 @@ describe("gate", () => {
     expect(shouldFail(summary({ failed: 1 }), "failed_only")).toBe(true);
     expect(shouldFail(summary({ blocked: 1 }), "needs_attention")).toBe(true);
     expect(shouldFail(summary({}, "ready_for_human_review"), "needs_attention")).toBe(false);
+    expect(shouldFail(summary({ browserMissions: 0 }, "needs_attention"), "needs_attention")).toBe(true);
   });
 });

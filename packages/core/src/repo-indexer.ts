@@ -1,5 +1,5 @@
 import path from "node:path";
-import { readTextIfExists, walkFiles } from "./fs.js";
+import { readTextIfExists, walkFilesWithCoverage } from "./fs.js";
 import type { RepoIndex } from "./types.js";
 
 const MANIFEST_FILES = [
@@ -17,8 +17,8 @@ const MANIFEST_FILES = [
   "README.md"
 ];
 
-export async function indexRepository(root: string): Promise<RepoIndex> {
-  const files = await walkFiles(root);
+export async function indexRepository(root: string, options: { maxFiles?: number } = {}): Promise<RepoIndex> {
+  const { files, coverage } = await walkFilesWithCoverage(root, options);
   const manifests: Record<string, string> = {};
   for (const manifest of MANIFEST_FILES) {
     if (!files.includes(manifest)) continue;
@@ -33,6 +33,7 @@ export async function indexRepository(root: string): Promise<RepoIndex> {
   return {
     root,
     files,
+    fileInventoryCoverage: coverage,
     manifests,
     packageManager: explicitPackageManager(files),
     frameworks: [],

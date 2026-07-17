@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { isSafeIndexedPath, readTextIfExists, walkFiles, writeTextEnsuringDir } from "./fs.js";
+import { isSafeIndexedPath, readTextIfExists, walkFiles, walkFilesWithCoverage, writeTextEnsuringDir } from "./fs.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -39,12 +39,13 @@ describe("walkFiles", () => {
     await writeFile(path.join(dir, "src", "untracked.ts"), "export {};\n");
     await git(dir, ["add", "src/tracked.ts"]);
 
-    const files = await walkFiles(dir, { maxFiles: 2 });
+    const { files, coverage } = await walkFilesWithCoverage(dir, { maxFiles: 2 });
     const uncappedFiles = await walkFiles(dir);
 
     expect(files).toContain("src/tracked.ts");
     expect(files).not.toContain("ignored-customer/customer-alice.json");
     expect(files).toHaveLength(2);
+    expect(coverage.complete).toBe(false);
     expect(uncappedFiles).toContain("src/untracked.ts");
     expect(uncappedFiles).not.toContain("ignored-customer/customer-alice.json");
   });
@@ -103,9 +104,34 @@ describe("walkFiles", () => {
     await writeFile(path.join(dir, "one.ts"), "export {};\n");
     await writeFile(path.join(dir, "two.ts"), "export {};\n");
 
-    const files = await walkFiles(dir, { maxFiles: 1 });
+    const { files, coverage } = await walkFilesWithCoverage(dir, { maxFiles: 1 });
 
     expect(files).toEqual(["one.ts"]);
+    expect(coverage).toMatchObject({ complete: false, includedFiles: 1, maxFiles: 1 });
+  });
+
+  it("fails closed when the legacy file-list API would truncate", async () => {
+    await writeFile(path.join(dir, "one.ts"), "export {};\n");
+    await writeFile(path.join(dir, "two.ts"), "export {};\n");
+
+    await expect(walkFiles(dir, { maxFiles: 1 })).rejects.toThrow("Use walkFilesWithCoverage");
+  });
+
+  it("reports exact and exceeded Git inventory boundaries", async () => {
+    await git(dir, ["init", "--quiet"]);
+    await writeFile(path.join(dir, "one.ts"), "export {};\n");
+    await writeFile(path.join(dir, "two.ts"), "export {};\n");
+    await git(dir, ["add", "one.ts", "two.ts"]);
+
+    await expect(walkFilesWithCoverage(dir, { maxFiles: 2 })).resolves.toMatchObject({
+      files: ["one.ts", "two.ts"],
+      coverage: { complete: true, includedFiles: 2, maxFiles: 2 }
+    });
+
+    await writeFile(path.join(dir, "three.ts"), "export {};\n");
+    const exceeded = await walkFilesWithCoverage(dir, { maxFiles: 2 });
+    expect(exceeded.files).toEqual(["one.ts", "two.ts"]);
+    expect(exceeded.coverage).toMatchObject({ complete: false, includedFiles: 2, maxFiles: 2 });
   });
 
   it.skipIf(process.platform === "win32")("omits hard-linked files from Git-visible inventory and boundary reads", async () => {

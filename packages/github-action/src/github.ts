@@ -15,12 +15,18 @@ export async function resolveActionAppUrl(input: {
   pull: PullRequest;
   detectDeploymentUrl: boolean;
 }): Promise<string> {
-  if (input.explicitUrl) return input.explicitUrl;
-  if (process.env.PREFLIGHT_SCOUT_APP_URL) return process.env.PREFLIGHT_SCOUT_APP_URL;
+  if (input.explicitUrl) {
+    return resolveTargetUrl(input.contract, { url: input.explicitUrl, target: input.target, env: input.targetEnv });
+  }
+  if (input.targetEnv === "auto" && process.env.PREFLIGHT_SCOUT_APP_URL) {
+    return resolveTargetUrl(input.contract, { url: process.env.PREFLIGHT_SCOUT_APP_URL, target: input.target, env: "auto" });
+  }
 
-  if (input.detectDeploymentUrl) {
+  if (input.targetEnv === "auto" && input.detectDeploymentUrl) {
     const deploymentUrl = await findLatestSuccessfulDeploymentUrl(input.octokit, input.pull);
-    if (deploymentUrl) return deploymentUrl;
+    if (deploymentUrl) {
+      return resolveTargetUrl(input.contract, { url: deploymentUrl, target: input.target, env: "auto" });
+    }
   }
 
   return resolveTargetUrl(input.contract, { target: input.target, env: input.targetEnv });

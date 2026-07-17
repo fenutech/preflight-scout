@@ -44,6 +44,56 @@ describe("resolveTargetUrl", () => {
     expect(resolveTargetUrl(contract, { target: "admin", env: "local" })).toBe("http://127.0.0.1:3001");
   });
 
+  it("fails closed when an explicit local environment is unavailable", () => {
+    expect(() => resolveTargetUrl({ ...contract, app: { stagingUrl: "https://staging.example.com" } }, { env: "local" }))
+      .toThrow("No local app URL configured");
+    expect(() => resolveTargetUrl(contract, { target: "frontend", env: "local" }))
+      .not.toThrow();
+    expect(() => resolveTargetUrl({
+      ...contract,
+      app: { targets: { stagingOnly: { stagingUrl: "https://staging.example.com" } } }
+    }, { target: "stagingOnly", env: "local" })).toThrow("No local app URL configured");
+  });
+
+  it("fails closed when an explicit staging environment is unavailable", () => {
+    expect(() => resolveTargetUrl(contract, { target: "admin", env: "staging" }))
+      .toThrow("No staging app URL configured");
+    expect(() => resolveTargetUrl({ ...contract, app: { localUrl: "http://127.0.0.1:3000" } }, { env: "staging" }))
+      .toThrow("No staging app URL configured");
+    expect(() => resolveTargetUrl({ ...contract, app: { url: "https://default.example.com" } }, { env: "staging" }))
+      .toThrow("No staging app URL configured");
+  });
+
+  it("retains cross-environment fallback only for automatic selection", () => {
+    expect(resolveTargetUrl({ ...contract, app: { stagingUrl: "https://staging.example.com" } }, { env: "auto" }))
+      .toBe("https://staging.example.com");
+    expect(resolveTargetUrl({ ...contract, app: { localUrl: "http://127.0.0.1:3000" } }, { env: "auto" }))
+      .toBe("http://127.0.0.1:3000");
+  });
+
+  it("uses the generic app URL environment variable only for automatic selection", () => {
+    const previous = process.env.PREFLIGHT_SCOUT_APP_URL;
+    process.env.PREFLIGHT_SCOUT_APP_URL = "https://generic.example.com";
+    try {
+      expect(resolveTargetUrl({ ...contract, app: { localUrl: "http://127.0.0.1:3000" } }, { env: "local" }))
+        .toBe("http://127.0.0.1:3000");
+      expect(() => resolveTargetUrl({ ...contract, app: { localUrl: "http://127.0.0.1:3000" } }, { env: "staging" }))
+        .toThrow("No staging app URL configured");
+      expect(resolveTargetUrl({ ...contract, app: {} }, { env: "auto" }))
+        .toBe("https://generic.example.com");
+    } finally {
+      if (previous === undefined) delete process.env.PREFLIGHT_SCOUT_APP_URL;
+      else process.env.PREFLIGHT_SCOUT_APP_URL = previous;
+    }
+  });
+
+  it("validates environment names before applying direct URL overrides", () => {
+    expect(() => resolveTargetUrl(contract, { url: "https://preview.example.com", env: "production" }))
+      .toThrow("Invalid target environment");
+    expect(resolveTargetUrl(contract, { url: "https://preview.example.com", env: "staging" }))
+      .toBe("https://preview.example.com");
+  });
+
   it("rejects unknown named app targets", () => {
     expect(() => resolveTargetUrl(contract, { target: "mobile", env: "local" })).toThrow("App target");
   });

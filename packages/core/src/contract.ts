@@ -14,6 +14,10 @@ export class AppUrlValidationError extends Error {
   override readonly name = "AppUrlValidationError";
 }
 
+export class TargetEnvironmentError extends Error {
+  override readonly name = "TargetEnvironmentError";
+}
+
 export const DEFAULT_CONTRACT: QAContract = {
   app: {
     previewUrlSource: "unknown"
@@ -45,13 +49,12 @@ export async function loadContract(root: string): Promise<QAContract> {
 }
 
 export function resolveTargetUrl(contract: QAContract, options: { url?: string; env?: TargetEnvironment | string; target?: string } = {}): string {
-  if (options.url) return validateAppUrl(options.url);
-  if (process.env.PREFLIGHT_SCOUT_APP_URL) return validateAppUrl(process.env.PREFLIGHT_SCOUT_APP_URL);
-
   const env = options.env ?? "auto";
   if (!isTargetEnvironment(env)) {
-    throw new Error(`Invalid target environment "${env}". Use auto, local, or staging.`);
+    throw new TargetEnvironmentError(`Invalid target environment "${env}". Use auto, local, or staging.`);
   }
+  if (options.url) return validateAppUrl(options.url);
+  if (env === "auto" && process.env.PREFLIGHT_SCOUT_APP_URL) return validateAppUrl(process.env.PREFLIGHT_SCOUT_APP_URL);
 
   const targetName = options.target ?? process.env.PREFLIGHT_SCOUT_TARGET ?? contract.defaults?.target;
   const target = targetName && targetName !== "default" ? contract.app.targets?.[targetName] : undefined;
@@ -60,14 +63,20 @@ export function resolveTargetUrl(contract: QAContract, options: { url?: string; 
     throw new Error(`App target "${targetName}" was not found. Available targets: ${available.join(", ") || "none"}.`);
   }
   const appTarget = target ?? contract.app;
+  const targetHint = targetName && targetName !== "default" ? ` for app target "${targetName}"` : "";
 
-  if (env === "local" && appTarget.localUrl) return validateAppUrl(appTarget.localUrl);
-  if (env === "staging" && (appTarget.stagingUrl ?? appTarget.url)) return validateAppUrl(appTarget.stagingUrl ?? appTarget.url!);
+  if (env === "local") {
+    if (appTarget.localUrl) return validateAppUrl(appTarget.localUrl);
+    throw new TargetEnvironmentError(`No local app URL configured${targetHint}. Pass --url or add app.localUrl or app.targets.<name>.localUrl to .preflight-scout/config.yml.`);
+  }
+  if (env === "staging") {
+    if (appTarget.stagingUrl) return validateAppUrl(appTarget.stagingUrl);
+    throw new TargetEnvironmentError(`No staging app URL configured${targetHint}. Pass --url or add app.stagingUrl or app.targets.<name>.stagingUrl to .preflight-scout/config.yml.`);
+  }
 
   const resolved = appTarget.localUrl ?? appTarget.stagingUrl ?? appTarget.url;
   if (resolved) return validateAppUrl(resolved);
 
-  const targetHint = targetName && targetName !== "default" ? ` for app target "${targetName}"` : "";
   throw new Error(`No app URL configured${targetHint}. Pass --url, set PREFLIGHT_SCOUT_APP_URL, or add app.localUrl/app.stagingUrl or app.targets.<name> URLs to .preflight-scout/config.yml.`);
 }
 

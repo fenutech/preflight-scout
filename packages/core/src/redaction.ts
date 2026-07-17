@@ -37,6 +37,7 @@ export function redactRepoIndex(repoIndex: RepoIndex): RepoIndex {
   return {
     root: ".",
     files: redactPathList(repoIndex.files, redact),
+    fileInventoryCoverage: repoIndex.fileInventoryCoverage,
     manifests: Object.fromEntries(
       Object.entries(repoIndex.manifests)
         .filter(([key]) => isSafeIndexedPath(key))
