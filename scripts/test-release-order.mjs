@@ -12,7 +12,7 @@ const targetVersion = "0.1.1";
 const commitSha = "0123456789abcdef0123456789abcdef01234567";
 const targetTag = `v${targetVersion}`;
 const npmUrls = NPM_PACKAGES.map((packageName) =>
-  `https://registry.npmjs.org/-/package/${packageName.replace("/", "%2F")}/dist-tags`
+  `https://registry.npmjs.org/-/package/${encodeURIComponent(packageName)}/dist-tags`
 );
 const latestReleaseUrl = `https://api.github.com/repos/${PUBLIC_REPOSITORY}/releases/latest`;
 const targetReleaseUrl = `https://api.github.com/repos/${PUBLIC_REPOSITORY}/releases/tags/${targetTag}`;

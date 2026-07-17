@@ -58,7 +58,7 @@ export async function verifyReleaseOrder({
 
   const npm = [];
   for (const packageName of NPM_PACKAGES) {
-    const endpoint = `${NPM_API_ROOT}/-/package/${packageName.replace("/", "%2F")}/dist-tags`;
+    const endpoint = `${NPM_API_ROOT}/-/package/${encodeURIComponent(packageName)}/dist-tags`;
     const response = await getJson(fetchImpl, endpoint, npmHeaders, `npm dist-tags for ${packageName}`, {
       allowMissing: true,
       timeoutMs
