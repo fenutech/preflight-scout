@@ -45,15 +45,15 @@ only the CLI leaves the human to drive the commands manually.
 Requirements: Node.js 22.13 or newer. For users and agents, the recommended
 release installation uses npm and does not require pnpm. This repository may be
 available before its packages are published, so first confirm that the official
-`v0.1.3` release and the live npm registry both list
-`@preflight-scout/cli@0.1.3`. If either is missing, do not run the registry
+`v0.1.4` release and the live npm registry both list
+`@preflight-scout/cli@0.1.4`. If either is missing, do not run the registry
 install.
 
 After both checks pass, install the exact version and its matching browser:
 
 ```bash
-npm view @preflight-scout/cli@0.1.3 version --registry=https://registry.npmjs.org/
-npm install --global @preflight-scout/cli@0.1.3 --registry=https://registry.npmjs.org/
+npm view @preflight-scout/cli@0.1.4 version --registry=https://registry.npmjs.org/
+npm install --global @preflight-scout/cli@0.1.4 --registry=https://registry.npmjs.org/
 preflight-scout install-browser
 preflight-scout --version
 ```
@@ -65,7 +65,7 @@ the npm package does not download a browser during `postinstall`.
 After the same release and registry checks, this is useful for a quick trial:
 
 ```bash
-npm exec --yes --registry=https://registry.npmjs.org/ --package=@preflight-scout/cli@0.1.3 -- preflight-scout --help
+npm exec --yes --registry=https://registry.npmjs.org/ --package=@preflight-scout/cli@0.1.4 -- preflight-scout --help
 ```
 
 `npm exec` uses an ephemeral cached environment. It is not a durable agent
@@ -169,11 +169,11 @@ Preflight Scout does not replace its own executable. Check the official npm
 release and print the exact update commands with:
 
 ```bash
-preflight-scout update-check --skill-version 0.1.3
+preflight-scout update-check --skill-version 0.1.4
 ```
 
 The `0.1.0` CLI predates `update-check`. To upgrade from it, first confirm that
-both the GitHub `v0.1.3` release and `@preflight-scout/cli@0.1.3` exist, then run
+both the GitHub `v0.1.4` release and `@preflight-scout/cli@0.1.4` exist, then run
 the exact npm and browser commands in [Install the CLI](#1-install-the-cli).
 Refresh the plugin below, restart the client, and use `update-check` from then
 on.

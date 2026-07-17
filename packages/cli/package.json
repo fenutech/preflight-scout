@@ -1,6 +1,6 @@
 {
   "name": "@preflight-scout/cli",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "CLI for pull-request impact reports and browser QA missions.",
   "keywords": ["preflight-scout", "release-qa", "pull-request", "playwright", "agent-skill"],
   "author": "Andrea Fenu",
