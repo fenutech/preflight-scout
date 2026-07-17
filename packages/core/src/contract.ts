@@ -179,17 +179,19 @@ function normalizeContract(input: Partial<QAContract>): QAContract {
 
 function applyInitialContractOptions(contract: QAContract, options: InitialContractOptions): QAContract {
   const next = normalizeContract(contract);
-  const appUrl = options.targetEnv === "local" && !options.localUrl
+  const targetEnv = options.targetEnv ?? next.defaults?.targetEnv ?? "auto";
+  const target = options.target ?? next.defaults?.target;
+  const appUrl = targetEnv === "local" && !options.localUrl
     ? undefined
-    : options.targetEnv === "staging" && !options.stagingUrl
+    : targetEnv === "staging" && !options.stagingUrl
       ? undefined
       : options.appUrl;
-  const localUrl = options.localUrl ?? (options.targetEnv === "local" ? options.appUrl : undefined);
-  const stagingUrl = options.stagingUrl ?? (options.targetEnv === "staging" ? options.appUrl : undefined);
-  if (options.target && options.target !== "default") {
+  const localUrl = options.localUrl ?? (targetEnv === "local" ? options.appUrl : undefined);
+  const stagingUrl = options.stagingUrl ?? (targetEnv === "staging" ? options.appUrl : undefined);
+  if (target && target !== "default") {
     next.app = { ...next.app, targets: { ...next.app.targets } };
-    next.app.targets![options.target] = {
-      ...next.app.targets![options.target],
+    next.app.targets![target] = {
+      ...next.app.targets![target],
       ...(appUrl ? { url: appUrl } : {}),
       ...(localUrl ? { localUrl } : {}),
       ...(stagingUrl ? { stagingUrl } : {})

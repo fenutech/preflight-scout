@@ -123,7 +123,7 @@ runs:
       env:
         PREFLIGHT_SCOUT_GITHUB_TOKEN: ${{ inputs.github-token }}
         PREFLIGHT_SCOUT_MODE: ${{ inputs.mode }}
-        PREFLIGHT_SCOUT_APP_URL: ${{ inputs.app-url }}
+        PREFLIGHT_SCOUT_ACTION_APP_URL_INPUT: ${{ inputs.app-url }}
         PREFLIGHT_SCOUT_TARGET: ${{ inputs.target }}
         PREFLIGHT_SCOUT_TARGET_ENV: ${{ inputs.target-env }}
         PREFLIGHT_SCOUT_DETECT_DEPLOYMENT_URL: ${{ inputs.detect-deployment-url }}

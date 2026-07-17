@@ -219,6 +219,30 @@ describe("writeInitialContract", () => {
     expect(resolveTargetUrl(written, { env: "auto" })).toBe("http://127.0.0.1:3000");
   });
 
+  it.each([
+    { targetEnv: "local" as const, url: "http://127.0.0.1:3000", field: "localUrl" as const },
+    { targetEnv: "staging" as const, url: "https://staging.example.com", field: "stagingUrl" as const }
+  ])("maps --url with an LLM-selected $targetEnv and target", async ({ targetEnv, url, field }) => {
+    const repoIndex = await indexRepository(dir);
+    const llm = {
+      async completeJson() {
+        return {
+          ...contract,
+          app: { targets: { frontend: {} } },
+          defaults: { target: "frontend", targetEnv }
+        };
+      }
+    };
+
+    const written = await writeInitialContract(dir, repoIndex, llm, { appUrl: url });
+
+    expect(written.defaults?.target).toBe("frontend");
+    expect(written.defaults?.targetEnv).toBe(targetEnv);
+    expect(written.app.targets?.frontend?.[field]).toBe(url);
+    expect(written.app.targets?.frontend?.url).toBeUndefined();
+    expect(resolveTargetUrl(written)).toBe(url);
+  });
+
   it("adds missing Preflight Scout ignore entries without duplicating existing ones", async () => {
     await writeFile(path.join(dir, ".gitignore"), ".preflight-scout/auth/\n.env.preflight-scout.local\n");
     const repoIndex = await indexRepository(dir);
