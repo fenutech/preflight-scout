@@ -11,7 +11,8 @@ export async function verifyPublicationGates({
   fetchImpl = fetch,
   token,
   repository = PUBLIC_REPOSITORY,
-  checkImmutableReleaseSetting = true
+  checkImmutableReleaseSetting = true,
+  allowOmittedStableBranchBypassActors = false
 } = {}) {
   if (repository !== PUBLIC_REPOSITORY) {
     throw new Error(`Publication is restricted to ${PUBLIC_REPOSITORY}; received ${repository || "an empty repository"}.`);
@@ -31,6 +32,9 @@ export async function verifyPublicationGates({
 
   if (typeof checkImmutableReleaseSetting !== "boolean") {
     throw new Error("checkImmutableReleaseSetting must be a boolean.");
+  }
+  if (typeof allowOmittedStableBranchBypassActors !== "boolean") {
+    throw new Error("allowOmittedStableBranchBypassActors must be a boolean.");
   }
   if (checkImmutableReleaseSetting) {
     const immutableReleases = await getJson(
@@ -140,6 +144,7 @@ export async function verifyPublicationGates({
   }
 
   let protectedStableBranchRuleset;
+  let stableBranchBypassActors;
   let stableBranchRulesError;
   for (const summary of activeBranchRulesets) {
     if (!Number.isSafeInteger(summary.id) || summary.id <= 0) {
@@ -171,7 +176,12 @@ export async function verifyPublicationGates({
       continue;
     }
 
-    if (!Array.isArray(ruleset.bypass_actors) || ruleset.bypass_actors.length !== 0) {
+    const bypassActorsOmitted = !Object.hasOwn(ruleset, "bypass_actors");
+    if (bypassActorsOmitted && !allowOmittedStableBranchBypassActors) {
+      stableBranchRulesError = `The refs/heads/${STABLE_PLUGIN_BRANCH} ruleset must not allow bypass actors.`;
+      continue;
+    }
+    if (!bypassActorsOmitted && (!Array.isArray(ruleset.bypass_actors) || ruleset.bypass_actors.length !== 0)) {
       stableBranchRulesError = `The refs/heads/${STABLE_PLUGIN_BRANCH} ruleset must not allow bypass actors.`;
       continue;
     }
@@ -179,6 +189,7 @@ export async function verifyPublicationGates({
     const rulesError = validateStableBranchRules(ruleset.rules);
     if (!rulesError) {
       protectedStableBranchRuleset = ruleset;
+      stableBranchBypassActors = bypassActorsOmitted ? "admin-only-check-deferred" : "verified";
       break;
     }
     stableBranchRulesError = rulesError;
@@ -198,7 +209,8 @@ export async function verifyPublicationGates({
     reviewerCount: reviewers.reviewers.length,
     tagPolicy: tagPolicy.name,
     tagRuleset: protectedTagRuleset.name,
-    stableBranchRuleset: protectedStableBranchRuleset.name
+    stableBranchRuleset: protectedStableBranchRuleset.name,
+    stableBranchBypassActors
   };
 }
 
@@ -259,7 +271,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const result = await verifyPublicationGates({
     token: process.env.GITHUB_TOKEN,
     repository: process.env.GITHUB_REPOSITORY,
-    checkImmutableReleaseSetting: !usesGitHubActionsToken
+    checkImmutableReleaseSetting: !usesGitHubActionsToken,
+    allowOmittedStableBranchBypassActors: usesGitHubActionsToken
   });
-  console.log(`Verified live publication gates: ${result.repository} is ${result.visibility}; immutable-release setting ${result.immutableReleaseSetting}; ${result.stablePluginBranch} is protected at ${result.stablePluginCommit} by ${result.stableBranchRuleset}; ${result.environment} has ${result.reviewerCount} reviewer(s), tag policy ${result.tagPolicy}, and active tag ruleset ${result.tagRuleset}.`);
+  console.log(`Verified live publication gates: ${result.repository} is ${result.visibility}; immutable-release setting ${result.immutableReleaseSetting}; ${result.stablePluginBranch} is protected at ${result.stablePluginCommit} by ${result.stableBranchRuleset} with bypass actors ${result.stableBranchBypassActors}; ${result.environment} has ${result.reviewerCount} reviewer(s), tag policy ${result.tagPolicy}, and active tag ruleset ${result.tagRuleset}.`);
 }

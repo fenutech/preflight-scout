@@ -7,8 +7,8 @@ Read this reference only when `preflight-scout --version` fails on a local execu
 Requirements: Node.js 22.13 or newer. For users and agents, prefer the exact
 released npm package. First confirm both of these facts:
 
-1. The official Preflight Scout release documentation lists `v0.1.1`.
-2. The live npm registry lists `@preflight-scout/cli@0.1.1`.
+1. The official Preflight Scout release documentation lists `v0.1.2`.
+2. The live npm registry lists `@preflight-scout/cli@0.1.2`.
 
 Do not infer registry availability from a planned package name in source, this
 skill, a packed tarball, or an old checkout. If either check fails, continue to
@@ -17,8 +17,8 @@ skill, a packed tarball, or an old checkout. If either check fails, continue to
 After both checks pass:
 
 ```bash
-npm view @preflight-scout/cli@0.1.1 version --registry=https://registry.npmjs.org/
-npm install --global @preflight-scout/cli@0.1.1 --registry=https://registry.npmjs.org/
+npm view @preflight-scout/cli@0.1.2 version --registry=https://registry.npmjs.org/
+npm install --global @preflight-scout/cli@0.1.2 --registry=https://registry.npmjs.org/
 preflight-scout install-browser
 preflight-scout --version
 ```
@@ -30,7 +30,7 @@ runtime requirement visible to the user.
 For a quick trial after the same two checks:
 
 ```bash
-npm exec --yes --registry=https://registry.npmjs.org/ --package=@preflight-scout/cli@0.1.1 -- preflight-scout --help
+npm exec --yes --registry=https://registry.npmjs.org/ --package=@preflight-scout/cli@0.1.2 -- preflight-scout --help
 ```
 
 `npm exec` uses an ephemeral cached environment. It is not a durable
@@ -41,7 +41,7 @@ For an existing installation, run the read-only compatibility and registry
 check before the full workflow:
 
 ```bash
-preflight-scout update-check --skill-version 0.1.1
+preflight-scout update-check --skill-version 0.1.2
 ```
 
 If it reports a newer release, use the exact pinned npm command it prints,

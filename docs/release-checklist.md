@@ -104,7 +104,7 @@ Run from a clean checkout:
 ```bash
 corepack enable
 pnpm install --frozen-lockfile
-VERSION="0.1.1" # replace with the exact <version> being validated
+VERSION="0.1.2" # replace with the exact <version> being validated
 pnpm check:release-version -- "$VERSION"
 pnpm build
 pnpm check:site
@@ -184,6 +184,10 @@ Stop here unless the maintainer explicitly authorizes each external action.
 - [ ] Confirm repository release immutability is enabled. It applies to future
       releases only; do not treat the older mutable `v0.1.0` release as a
       template for new releases.
+- [ ] From an admin-authenticated maintainer shell, run the full
+      `scripts/verify-publication-gates.mjs` command in the maintainer guide and
+      retain its success output. The least-privilege Actions token cannot prove
+      the immutable-release setting or an omitted ruleset bypass list.
 - [ ] Confirm the active repository tag ruleset still protects `v*`, then
       create the exact stable tag `vX.Y.Z` at a commit contained in `main`.
       Prerelease or build-metadata tags are not supported. Pushing that tag is
@@ -220,3 +224,5 @@ Stop here unless the maintainer explicitly authorizes each external action.
 - [ ] Verify every public install path from a clean external account.
 - [ ] Monitor install failures and security reports; issue a new corrected
       version rather than rewriting a published tag.
+- [ ] If a protected release tag fails before publication, retain it as an
+      audit record and prepare a new patch version. Never move or reuse it.

@@ -1,6 +1,6 @@
 {
   "name": "@preflight-scout/core",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Core PR impact mapping, QA mission planning, contracts, reports, and provider adapters for Preflight Scout.",
   "keywords": ["preflight-scout", "release-qa", "pull-request", "playwright", "agent-skill"],
   "author": "Andrea Fenu",

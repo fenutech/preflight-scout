@@ -6,7 +6,20 @@ All notable changes to Preflight Scout are documented here. This project follows
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-07-17
+
+### Fixed
+
+- Kept the admin-only no-bypass ruleset assertion in the maintainer pre-tag
+  gate while allowing the least-privilege GitHub Actions token to validate the
+  complete visible `plugin-stable` ruleset shape without misreading GitHub's
+  omitted `bypass_actors` field as a configured bypass.
+
 ## [0.1.1] - 2026-07-17
+
+Publication stopped at the live repository gate before any artifact, npm
+package, or GitHub release was created. These changes therefore ship in
+`0.1.2`; the protected `v0.1.1` tag remains as an audit record.
 
 ### Added
 

@@ -84,10 +84,23 @@ review signal.
   release, then fast-forwards `plugin-stable` to that exact commit.
 
 The repository's immutable-release setting uses an administration-read API that
-the normal GitHub Actions token cannot access. Do not add a PAT to work around
-that boundary. The environment reviewer confirms the setting before approving
-publication, and the release job verifies the actual release's `immutable`
-field before advancing `plugin-stable`.
+the normal GitHub Actions token cannot access. GitHub also omits a ruleset's
+`bypass_actors` field from the metadata-only response available to that token.
+Do not add a PAT to work around either boundary. Immediately before creating a
+release tag, run the full gate from an admin-authenticated maintainer shell
+without printing the token:
+
+```bash
+GITHUB_REPOSITORY=fenutech/preflight-scout \
+GITHUB_TOKEN="$(gh auth token)" \
+node scripts/verify-publication-gates.mjs
+```
+
+The `--github-actions-token` mode defers only the two unavailable admin fields.
+It still verifies the visible branch rules exactly and rejects any bypass list
+that GitHub does return. The environment reviewer confirms the admin gate before
+approving publication, and the release job verifies the actual release's
+`immutable` field before advancing `plugin-stable`.
 
 The version choice, release-PR merge, protected tag, production-environment
 approval, and any external marketplace submission remain explicit maintainer
