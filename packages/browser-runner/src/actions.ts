@@ -110,6 +110,30 @@ export async function executeDecision(
   }
 }
 
+export function bindReviewedAssertionDecision(
+  decision: BrowserDecision,
+  mission: QAFlowMission
+): BrowserDecision {
+  if (decision.action !== "assert" || !decision.missionStepId) return decision;
+  const reviewedStep = mission.steps.find((candidate) => candidate.id === decision.missionStepId);
+  if (
+    !reviewedStep?.target
+    || (reviewedStep.action !== "assert_visible" && reviewedStep.action !== "assert_text")
+  ) {
+    return decision;
+  }
+
+  // The live model chooses which reviewed assertion is ready to run, but it
+  // does not choose or weaken the assertion itself. Bind the locator and text
+  // to the human-reviewed mission before safety validation and execution.
+  const { value: _unreviewedValue, ...boundDecision } = decision;
+  return {
+    ...boundDecision,
+    target: reviewedStep.target,
+    ...(reviewedStep.action === "assert_text" ? { value: reviewedStep.expected } : {})
+  };
+}
+
 export function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
 }

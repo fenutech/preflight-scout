@@ -4,7 +4,7 @@ import { lstat, mkdir, realpath, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from "playwright";
 import { BrowserDecisionSchema, browserCredentialEnvName, isActionApproved, loadApprovals, redactContract, redactText, writeTextEnsuringDir, type ApprovalState, type LLMClient, type MissionRunResult, type QAContract, type QAFlowMission, type RoleCredential, type StepResult } from "@preflight-scout/core";
-import { executeDecision } from "./actions.js";
+import { bindReviewedAssertionDecision, executeDecision } from "./actions.js";
 import { BrowserNavigationBoundary } from "./navigation.js";
 import { observe, screenshot } from "./observe.js";
 import { canonicalizeStorageStatePath, loadStorageStateInput, validateStorageStateInput, writeStorageStateMetadata } from "./storage-state.js";
@@ -167,7 +167,10 @@ export async function runBrowserMission(mission: QAFlowMission, options: Browser
       }
       artifacts.push(observationScreenshot);
       options.progress?.(`Mission ${mission.id}: waiting for LLM browser decision ${turn}/${maxTurns}`);
-      const decision = await decideNextAction(options.llm, mission, options.contract, approvals, observation, observationScreenshot, results);
+      const decision = bindReviewedAssertionDecision(
+        await decideNextAction(options.llm, mission, options.contract, approvals, observation, observationScreenshot, results),
+        mission
+      );
       const stepId = `turn-${turn}`;
       options.progress?.(`Mission ${mission.id}: ${decision.action}${decision.target ? ` ${decision.target}` : ""}`);
 
@@ -546,7 +549,7 @@ If a previous browser action failed, recover like a human tester: use the screen
 If a previous fill action passed and the same field is still visibly filled, move to the next required credential or assertion instead of filling the same field again.
 For login missions, authenticate the configured existing user only from the reviewed mission startPath. Do not discover or substitute another login URL. After entering a credential field successfully, use the observed page state to move toward the next required credential, safe submit action, and exact reviewed signed-in assertion instead of repeating the same completed action.
 Every goto, click, fill, or press must name the exact reviewed missionStepId it implements. For non-login steps, its target must match the reviewed target; do not substitute an unrelated live control. Login steps may discover live login controls, but remain bound to the exact reviewed login step id and contract login permission.
-Assert actions must name an exact reviewed assert_visible/assert_text missionStepId; the runner executes the reviewed target and expected text, not an LLM substitute. finish_pass is refused until every executable reviewed step is covered and at least one reviewed assertion passes. Login missions additionally require the exact configured signed-in marker, a safe credential-form submission, a changed cookie/storage session, and disappearance of the credential form.
+Assert actions must name an exact reviewed assert_visible/assert_text missionStepId. Omit target and value for assert actions: the runner binds and executes the reviewed target and expected text, not an LLM substitute. finish_pass is refused until every executable reviewed step is covered and at least one reviewed assertion passes. Login missions additionally require the exact configured signed-in marker, a safe credential-form submission, a changed cookie/storage session, and disappearance of the credential form.
 Before returning finish_fail because an expected action is missing, carefully inspect currentObservation.text, currentObservation.interactive, and the screenshot. Do not claim an element is absent when it appears in the observation.
 If a relevant action may be below the fold, scroll or use another visible navigation action before failing. Fail only when the live app clearly contradicts the mission goal or a required assertion remains false after a reasonable browser attempt.
 Do not use hardcoded scripts. Navigate like a human tester using the live page observation and attached screenshot.`

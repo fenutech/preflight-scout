@@ -440,7 +440,7 @@ describe("runBrowserMission", () => {
     expect(consoleErrors.at(-1)?.length).toBeLessThanOrEqual(1_000);
   });
 
-  it("refuses immediate finish_pass and unrelated assertion substitution", async () => {
+  it("refuses immediate finish_pass before the reviewed assertion is covered", async () => {
     const reviewedMission: QAFlowMission = {
       id: "reviewed-assertion",
       title: "Reviewed assertion",
@@ -465,23 +465,47 @@ describe("runBrowserMission", () => {
     });
     expect(immediate.status).toBe("blocked");
     expect(immediate.results.at(-1)?.message).toContain("not successfully covered");
+  });
 
-    const unrelated = await runBrowserMission(reviewedMission, {
+  it("binds live assertion fields to the reviewed target and expected text", async () => {
+    const reviewedMission: QAFlowMission = {
+      id: "reviewed-assertion",
+      title: "Reviewed assertion",
+      risk: "high",
+      startPath: "/",
+      reason: ["Require reviewed evidence."],
+      steps: [{
+        id: "verify-total",
+        instruction: "Verify the checkout total.",
+        action: "assert_text",
+        target: "testid=order-total",
+        expected: "Total: $100.00"
+      }]
+    };
+    const bound = await runBrowserMission(reviewedMission, {
       baseUrl,
       contract: basicContract(),
-      llm: new DecisionSequenceLLM([{
-        thought: "Assert an unrelated element.",
-        action: "assert",
-        missionStepId: "verify-total",
-        target: "text=Checkout",
-        reason: "Substitute a weaker assertion."
-      }]),
-      outputDir: path.join(outputDir, "unrelated-assert"),
+      llm: new DecisionSequenceLLM([
+        {
+          thought: "Assert an unrelated element.",
+          action: "assert",
+          missionStepId: "verify-total",
+          target: "text=Checkout",
+          value: "A weaker substitute",
+          reason: "Attempt to substitute a weaker assertion."
+        },
+        {
+          thought: "The reviewed assertion passed.",
+          action: "finish_pass",
+          reason: "The exact reviewed assertion is covered."
+        }
+      ]),
+      outputDir: path.join(outputDir, "bound-assert"),
       headless: true,
-      maxTurns: 1
+      maxTurns: 2
     });
-    expect(unrelated.status).toBe("blocked");
-    expect(unrelated.results[0]?.message).toContain("not the exact reviewed target");
+    expect(bound.status).toBe("passed");
+    expect(bound.results[0]?.status).toBe("passed");
   });
 
   it("blocks ambiguous mutating locators before either matching control can run", async () => {

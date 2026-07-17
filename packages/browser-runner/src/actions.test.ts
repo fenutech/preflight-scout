@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ApprovalState, QAContract, QAFlowMission } from "@preflight-scout/core";
 import { BrowserDecisionSchema } from "@preflight-scout/core";
-import { checkActionSafety, parseViewportSize } from "./actions.js";
+import { bindReviewedAssertionDecision, checkActionSafety, parseViewportSize } from "./actions.js";
 import type { BrowserDecision } from "./types.js";
 
 const noApprovals: ApprovalState = { approvals: [] };
@@ -91,6 +91,25 @@ describe("reviewed browser action boundary", () => {
     });
     expect(checkActionSafety(decision({ action: "press", value: "Control+Enter" }), contract(), noApprovals, pressMission))
       .toContain("exact reviewed value");
+  });
+
+  it("binds live assertion fields to the exact reviewed assertion", () => {
+    const reviewed = mission({
+      id: "reviewed-action",
+      instruction: "Verify the reviewed total.",
+      action: "assert_text",
+      target: "testid=order-total",
+      expected: "Total: $100.00"
+    });
+    const bound = bindReviewedAssertionDecision(decision({
+      action: "assert",
+      target: "text=Checkout",
+      value: "A weaker substitute"
+    }), reviewed);
+
+    expect(bound.target).toBe("testid=order-total");
+    expect(bound.value).toBe("Total: $100.00");
+    expect(checkActionSafety(bound, contract(), noApprovals, reviewed)).toBeUndefined();
   });
 
   it("rejects oversized decisions and unsafe viewport allocations", () => {
