@@ -271,7 +271,7 @@ console.error(process.env.PREFLIGHT_SCOUT_BROWSER_DEMO_PASSWORD);
 });
 
 async function runCli(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ stdout: string; stderr: string }> {
-  return execFileAsync("pnpm", ["exec", "tsx", cliPath, ...args], {
+  return execFileAsync(process.execPath, ["--import", "tsx", cliPath, ...args], {
     cwd: repoRoot,
     env: { ...process.env, PREFLIGHT_SCOUT_LLM_PROVIDER: "none", ...env }
   });

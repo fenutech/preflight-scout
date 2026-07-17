@@ -1,6 +1,6 @@
 {
   "name": "@preflight-scout/github-action",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "GitHub Action entrypoint for Preflight Scout PR reports and browser evidence.",
   "keywords": ["preflight-scout", "release-qa", "pull-request", "playwright", "agent-skill"],
   "author": "Andrea Fenu",
@@ -40,8 +40,8 @@
     "@actions/artifact": "^6.2.1",
     "@actions/core": "^3.0.1",
     "@actions/github": "^9.1.1",
-    "@preflight-scout/browser-runner": "workspace:^",
-    "@preflight-scout/core": "workspace:^"
+    "@preflight-scout/browser-runner": "workspace:*",
+    "@preflight-scout/core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.20.1"

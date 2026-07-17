@@ -23,6 +23,7 @@ const requiredFiles = [
   ".github/workflows/ci.yml",
   ".github/workflows/labeler.yml",
   ".github/workflows/preflight-scout-self-check.yml",
+  ".github/workflows/prepare-release.yml",
   ".github/workflows/publish.yml",
   ".github/workflows/release-candidate.yml",
   ".agents/plugins/marketplace.json",
@@ -78,6 +79,7 @@ const requiredFiles = [
   "scripts/npm-global-install-smoke.mjs",
   "scripts/package-build-integrity.mjs",
   "scripts/package-build-paths.mjs",
+  "scripts/prepare-release.mjs",
   "scripts/publication-artifact.mjs",
   "scripts/resolve-external-tool.mjs",
   "scripts/run-test-suite.mjs",
@@ -85,13 +87,17 @@ const requiredFiles = [
   "scripts/test-repository-boundary.mjs",
   "scripts/test-npm-global-install-smoke.mjs",
   "scripts/test-package-build-integrity.mjs",
+  "scripts/test-prepare-release.mjs",
   "scripts/test-publication-artifact.mjs",
   "scripts/test-publication-gates.mjs",
+  "scripts/test-release-order.mjs",
+  "scripts/test-release-version.mjs",
   "scripts/test-source-cli-wrapper.mjs",
   "scripts/verify-packed-packages.mjs",
   "scripts/verify-cloudflare-pages.mjs",
   "scripts/verify-repository-boundary.mjs",
   "scripts/verify-publication-gates.mjs",
+  "scripts/verify-release-order.mjs",
   "skills/preflight-scout/SKILL.md",
   "skills/preflight-scout/references/cli-installation.md",
   "skills/scripts/build-skill-archive.py",
@@ -161,6 +167,21 @@ if (!rootManifest.scripts?.["pack:check"]?.includes("verify-packed-packages.mjs"
 if (rootManifest.scripts?.["test:publication"] !== "node scripts/test-publication-gates.mjs && node scripts/test-publication-artifact.mjs") {
   failures.push("test:publication must exercise live-gate and immutable-artifact publication safeguards.");
 }
+if (rootManifest.scripts?.["release:prepare"] !== "node scripts/prepare-release.mjs") {
+  failures.push("release:prepare must use the deterministic lockstep release-preparation script.");
+}
+if (rootManifest.scripts?.["test:prepare-release"] !== "node scripts/test-prepare-release.mjs") {
+  failures.push("test:prepare-release must exercise release mutation and workflow boundaries.");
+}
+if (rootManifest.scripts?.["test:release-version"] !== "node scripts/test-release-version.mjs") {
+  failures.push("test:release-version must exercise exact lockstep release alignment.");
+}
+if (rootManifest.scripts?.["check:release-order"] !== "node scripts/verify-release-order.mjs") {
+  failures.push("check:release-order must verify the live npm, GitHub release, and required-check ordering boundary.");
+}
+if (rootManifest.scripts?.["test:release-order"] !== "node scripts/test-release-order.mjs") {
+  failures.push("test:release-order must exercise release ordering without external mutation.");
+}
 if (rootManifest.scripts?.["test:ci"] !== "node scripts/run-test-suite.mjs unit") {
   failures.push("test:ci must enforce the no-browser-cache unit-suite boundary.");
 }
@@ -214,24 +235,88 @@ for (const forbiddenKey of ["account_id", "zone_id", "api_token", "secret", "tok
   }
 }
 
+const ciWorkflow = await readFile(path.join(root, ".github/workflows/ci.yml"), "utf8");
+const prepareReleaseWorkflow = await readFile(path.join(root, ".github/workflows/prepare-release.yml"), "utf8");
 const publishWorkflow = await readFile(path.join(root, ".github/workflows/publish.yml"), "utf8");
-const requiredPublishWorkflowMarkers = [
+for (const marker of [
   "workflow_dispatch:",
+  "persist-credentials: false",
+  "actions: write",
+  "contents: write",
+  "gh auth setup-git",
+  "compare/main...${branch}?expand=1",
+  "gh workflow run ci.yml",
+  "explicit approval, thumbs-up, or no-blocker comment",
+  "refusing to replace a reviewed tree"
+]) {
+  if (!prepareReleaseWorkflow.includes(marker)) failures.push(`prepare-release.yml is missing safety gate: ${marker}`);
+}
+for (const forbidden of [
+  "pull-requests: write",
+  "gh pr create",
+  "gh pr edit",
+  "gh pr merge",
+  "git tag",
+  "npm publish",
+  "pnpm publish",
+  "gh release create",
+  "--force"
+]) {
+  if (prepareReleaseWorkflow.includes(forbidden)) failures.push(`prepare-release.yml must not contain ${forbidden}.`);
+}
+if (
+  !ciWorkflow.includes("workflow_dispatch:") ||
+  !ciWorkflow.includes("pnpm test:prepare-release") ||
+  !ciWorkflow.includes("pnpm test:release-version") ||
+  !ciWorkflow.includes("pnpm test:release-order")
+) {
+  failures.push("CI must support explicit dispatch for bot-created release branches and test the preparation/version/order boundaries.");
+}
+if (
+  !publishWorkflow.includes("pnpm test:prepare-release") ||
+  !publishWorkflow.includes("pnpm test:release-version") ||
+  !publishWorkflow.includes("pnpm test:release-order")
+) {
+  failures.push("Publication validation must exercise the release-preparation, version-coupling, and order boundaries.");
+}
+const publicationGatesScript = await readFile(path.join(root, "scripts/verify-publication-gates.mjs"), "utf8");
+if (!publicationGatesScript.includes("/immutable-releases") || !publicationGatesScript.includes("immutableReleases.enabled !== true")) {
+  failures.push("Publication must fail closed unless GitHub immutable releases are enabled.");
+}
+if (!publicationGatesScript.includes("/branches/${STABLE_PLUGIN_BRANCH}") || !publicationGatesScript.includes("stablePluginBranch.protected !== true")) {
+  failures.push("Publication must fail closed unless plugin-stable exists and is protected.");
+}
+const requiredPublishWorkflowMarkers = [
+  "push:",
+  "tags:",
+  '- "v*"',
+  "group: npm-publication",
   "permissions: {}",
   "GITHUB_REF_TYPE",
-  "refs/tags/v${VERSION}",
+  "GITHUB_REF_NAME",
+  "checks: read",
   "git merge-base --is-ancestor",
-  "node scripts/verify-publication-gates.mjs",
+  "node scripts/verify-publication-gates.mjs --github-actions-token",
+  "node scripts/verify-release-order.mjs",
+  'git merge-base --is-ancestor refs/remotes/origin/plugin-stable "$GITHUB_SHA"',
   "environment:\n      name: npm-production",
   "id-token: write",
   "Publish with package-specific npm trusted publishers",
   "--mode trusted-publishing",
   "verify-live-install:",
   "packages=(core agent-exec browser-runner mcp github-action cli)",
-  "for _attempt in {1..60}; do",
+  "dist-tags.latest",
   "npm install --global --prefix",
   '"@preflight-scout/cli@${VERSION}"',
-  "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+  "gh release create",
+  "--latest",
+  "--verify-tag",
+  '[[ "$is_immutable" == "true" ]]',
+  "Advance the stable plugin channel",
+  "+refs/heads/plugin-stable:refs/remotes/origin/plugin-stable",
+  'git merge-base --is-ancestor "$stable_sha" "$GITHUB_SHA"',
+  '"repos/${GITHUB_REPOSITORY}/git/refs/heads/plugin-stable"',
+  "-F force=false"
 ];
 for (const marker of requiredPublishWorkflowMarkers) {
   if (!publishWorkflow.includes(marker)) failures.push(`publish.yml is missing safety gate: ${marker}`);
@@ -242,16 +327,27 @@ for (const forbiddenAuthenticationPath of ["secrets.NPM_TOKEN", "NODE_AUTH_TOKEN
   }
 }
 const publishTriggerBlock = publishWorkflow.slice(publishWorkflow.indexOf("on:"), publishWorkflow.indexOf("concurrency:"));
-for (const forbiddenTrigger of ["push:", "pull_request:", "release:", "schedule:", "workflow_call:"]) {
+for (const forbiddenTrigger of ["workflow_dispatch:", "pull_request:", "release:", "schedule:", "workflow_call:"]) {
   if (publishTriggerBlock.includes(forbiddenTrigger)) failures.push(`publish.yml must not use trigger ${forbiddenTrigger}`);
+}
+if (!/concurrency:\s*\n\s+group:\s*npm-publication\s*\n\s+cancel-in-progress:\s*false/.test(publishWorkflow)) {
+  failures.push("publish.yml must serialize every release in one repository-wide npm-publication group.");
+}
+if (!publishWorkflow.includes('[[ "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$ ]]')) {
+  failures.push("publish.yml must accept stable vX.Y.Z tags only until prerelease channels are implemented.");
 }
 const publishJobIndex = publishWorkflow.indexOf("\n  publish:\n");
 const liveInstallJobIndex = publishWorkflow.indexOf("\n  verify-live-install:\n");
+const releaseJobIndex = publishWorkflow.indexOf("\n  release:\n");
 const validateJob = publishWorkflow.slice(publishWorkflow.indexOf("\n  validate:\n"), publishJobIndex);
 const publishJob = publishWorkflow.slice(publishJobIndex, liveInstallJobIndex > publishJobIndex ? liveInstallJobIndex : undefined);
-const liveInstallJob = liveInstallJobIndex >= 0 ? publishWorkflow.slice(liveInstallJobIndex) : "";
+const liveInstallJob = liveInstallJobIndex >= 0
+  ? publishWorkflow.slice(liveInstallJobIndex, releaseJobIndex > liveInstallJobIndex ? releaseJobIndex : undefined)
+  : "";
+const releaseJob = releaseJobIndex >= 0 ? publishWorkflow.slice(releaseJobIndex) : "";
 if (publishJobIndex < 0) failures.push("publish.yml must contain a distinct environment-gated publish job.");
 if (liveInstallJobIndex < 0) failures.push("publish.yml must verify the exact live npm install after publication.");
+if (releaseJobIndex < 0) failures.push("publish.yml must create or verify the matching GitHub release after live installation succeeds.");
 if (validateJob.includes("id-token:") || validateJob.includes("secrets.NPM_TOKEN")) {
   failures.push("publish.yml validation job must not receive OIDC or npm publication credentials.");
 }
@@ -263,7 +359,12 @@ for (const forbiddenPublishJobCode of ["actions/checkout@", "./.github/actions/s
     failures.push(`publish.yml privileged job must not run repository install/build code: ${forbiddenPublishJobCode}`);
   }
 }
-if (!liveInstallJob.includes("needs: publish") || !liveInstallJob.includes('"@preflight-scout/cli@${VERSION}"')) {
+if (
+  !liveInstallJob.includes("needs: [validate, publish]") ||
+  !liveInstallJob.includes('"@preflight-scout/cli@${VERSION}"') ||
+  !liveInstallJob.includes('exact="$(npm view "@preflight-scout/${package}@${VERSION}" version') ||
+  !liveInstallJob.includes('latest="$(npm view "@preflight-scout/${package}" dist-tags.latest')
+) {
   failures.push("publish.yml live-install verification must depend on publication and pin the exact CLI version.");
 }
 for (const forbiddenLiveInstallCapability of ["id-token: write", "secrets.NPM_TOKEN", "NODE_AUTH_TOKEN", "actions/checkout@", "pnpm "]) {
@@ -281,7 +382,42 @@ if (trustedStepIndex < 0) {
 if ((publishWorkflow.match(/--mode trusted-publishing/g) ?? []).length !== 1 || trustedStep.includes("\n        if:")) {
   failures.push("publish.yml must run exactly one unconditional trusted-publishing step.");
 }
-for (const forbiddenPermission of ["contents: write", "actions: write", "packages: write"]) {
+if (!releaseJob.includes("needs: [validate, verify-live-install]")) {
+  failures.push("publish.yml release job must wait for every Linux and Windows live-install matrix job.");
+}
+if (
+  (publishWorkflow.match(/contents:\s*write/g) ?? []).length !== 1 ||
+  !releaseJob.includes("permissions:\n      contents: write\n    steps:")
+) {
+  failures.push("publish.yml release job must be the only job with contents: write.");
+}
+if (
+  !releaseJob.includes("persist-credentials: false") ||
+  !releaseJob.includes("ref: ${{ github.ref }}") ||
+  !releaseJob.includes('[[ "$is_prerelease" == "false" ]]') ||
+  !releaseJob.includes('git merge-base --is-ancestor "$stable_sha" "$GITHUB_SHA"') ||
+  !releaseJob.includes("-F force=false")
+) {
+  failures.push("publish.yml release job must use a credential-free exact-tag checkout, create a regular release, and only fast-forward plugin-stable.");
+}
+for (const forbiddenReleaseCapability of [
+  "id-token: write",
+  "actions: write",
+  "packages: write",
+  "secrets.",
+  "NODE_AUTH_TOKEN",
+  "actions/setup-node@",
+  "pnpm ",
+  "npm publish",
+  "environment:",
+  "./.github/",
+  "if: always()"
+]) {
+  if (releaseJob.includes(forbiddenReleaseCapability)) {
+    failures.push(`publish.yml release job must not receive or run ${forbiddenReleaseCapability}.`);
+  }
+}
+for (const forbiddenPermission of ["actions: write", "packages: write"]) {
   if (publishWorkflow.includes(forbiddenPermission)) failures.push(`publish.yml must not grant ${forbiddenPermission}.`);
 }
 
@@ -321,6 +457,22 @@ for (const file of ["README.md", "docs/skills.md"]) {
   if (!contents.includes("$preflight-scout:preflight-scout")) {
     failures.push(`${file} must document the namespaced Codex plugin invocation.`);
   }
+  if (
+    !contents.includes("codex plugin marketplace add fenutech/preflight-scout --ref plugin-stable") ||
+    !contents.includes("claude plugin marketplace add fenutech/preflight-scout@plugin-stable")
+  ) {
+    failures.push(`${file} must install Codex and Claude Code from the released plugin-stable channel.`);
+  }
+}
+
+for (const [file, marker] of [
+  ["README.md", "Pair an unreleased source CLI only with the skill folder from that same checkout."],
+  ["docs/public-alpha.md", "Pair an unreleased source CLI only with the"],
+  ["docs/skills.md", "An unreleased source CLI must use the direct Codex or Claude Code skill from"],
+  ["skills/preflight-scout/references/cli-installation.md", "For an unreleased source CLI, install `skills/preflight-scout/` directly from"]
+]) {
+  const contents = await readFile(path.join(root, file), "utf8");
+  if (!contents.includes(marker)) failures.push(`${file} must keep unreleased source CLI and skill installs on the same checkout.`);
 }
 
 for (const file of ["README.md", "docs/public-alpha.md", "docs/skills.md", "skills/preflight-scout/references/cli-installation.md"]) {

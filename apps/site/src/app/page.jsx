@@ -5,8 +5,8 @@ import { WorkflowSteps } from "@/components/WorkflowSteps";
 import { GITHUB_URL, HOME_STRUCTURED_DATA, RELEASE_VERSION } from "@/lib/site";
 
 const cliCommand = `npm install --global @preflight-scout/cli@${RELEASE_VERSION} --registry=https://registry.npmjs.org/\npreflight-scout install-browser`;
-const codexSkillCommand = "codex plugin marketplace add fenutech/preflight-scout\ncodex plugin add preflight-scout@preflight-scout";
-const claudeSkillCommand = "claude plugin marketplace add fenutech/preflight-scout\nclaude plugin install preflight-scout@preflight-scout";
+const codexSkillCommand = "codex plugin marketplace add fenutech/preflight-scout --ref plugin-stable\ncodex plugin add preflight-scout@preflight-scout";
+const claudeSkillCommand = "claude plugin marketplace add fenutech/preflight-scout@plugin-stable\nclaude plugin install preflight-scout@preflight-scout";
 
 export default function HomePage() {
   return (
@@ -23,6 +23,7 @@ export default function HomePage() {
           <div className="trust-line" aria-label="Open source, runs in your repository, you review every result">
             <span>Open source</span><CircleIcon size={7} weight="fill" aria-hidden="true" /><span>Runs in your repository</span><CircleIcon size={7} weight="fill" aria-hidden="true" /><span>You review every result</span>
           </div>
+          <p className="release-availability-note">Before running the commands, confirm <a href={`https://github.com/fenutech/preflight-scout/releases/tag/v${RELEASE_VERSION}`}>GitHub release v{RELEASE_VERSION}</a> and <a href={`https://www.npmjs.com/package/@preflight-scout/cli/v/${RELEASE_VERSION}`}>the matching npm package</a> both exist. If either is missing, use the source path on the <a href="/install/">install page</a>.</p>
           <ol className="quick-install" aria-label="Quick installation">
             <li>
               <div className="install-step-heading"><span>1</span><strong>Install the CLI</strong></div>

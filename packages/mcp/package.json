@@ -1,6 +1,6 @@
 {
   "name": "@preflight-scout/mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Generic MCP client utilities for Preflight Scout mission bridges.",
   "keywords": ["preflight-scout", "release-qa", "pull-request", "playwright", "agent-skill"],
   "author": "Andrea Fenu",
@@ -38,7 +38,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@preflight-scout/core": "workspace:^"
+    "@preflight-scout/core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.20.1"

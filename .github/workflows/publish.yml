@@ -1,19 +1,12 @@
 name: Publish npm packages
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: Exact SemVer to publish, without a leading v.
-        required: true
-        type: string
-      confirmation:
-        description: Type PUBLISH @preflight-scout VERSION <version> FROM v<version>
-        required: true
-        type: string
+  push:
+    tags:
+      - "v*"
 
 concurrency:
-  group: npm-publication-${{ inputs.version }}
+  group: npm-publication
   cancel-in-progress: false
 
 permissions: {}
@@ -25,8 +18,10 @@ jobs:
     timeout-minutes: 50
     permissions:
       actions: read
+      checks: read
       contents: read
     outputs:
+      version: ${{ steps.release.outputs.version }}
       artifact-name: ${{ steps.candidate.outputs.artifact_name }}
       checksums-sha256: ${{ steps.candidate.outputs.checksums_sha256 }}
       artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
@@ -36,21 +31,20 @@ jobs:
           node-version: "24.15.0"
           package-manager-cache: false
 
-      - name: Reject the wrong repository, visibility, ref, or confirmation
+      - name: Resolve and validate the protected release tag
+        id: release
         env:
-          CONFIRMATION: ${{ inputs.confirmation }}
           EXPECTED_REPOSITORY: fenutech/preflight-scout
           REPOSITORY: ${{ github.repository }}
           REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
-          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           [[ "$REPOSITORY" == "$EXPECTED_REPOSITORY" ]]
           [[ "$REPOSITORY_PRIVATE" == "false" ]]
           [[ "$GITHUB_REF_TYPE" == "tag" ]]
-          [[ "$GITHUB_REF" == "refs/tags/v${VERSION}" ]]
-          [[ "$GITHUB_REF_NAME" == "v${VERSION}" ]]
-          [[ "$CONFIRMATION" == "PUBLISH @preflight-scout VERSION ${VERSION} FROM v${VERSION}" ]]
+          [[ "$GITHUB_REF" == "refs/tags/${GITHUB_REF_NAME}" ]]
+          [[ "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          printf 'version=%s\n' "${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -58,18 +52,30 @@ jobs:
           persist-credentials: false
           ref: ${{ github.ref }}
 
-      - name: Verify the tag commit is contained in main
+      - name: Verify the tag follows the stable channel and is contained in main
         run: |
           set -euo pipefail
           [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
           [[ "$(git rev-list -n 1 "$GITHUB_REF")" == "$GITHUB_SHA" ]]
-          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          git fetch --no-tags origin \
+            +refs/heads/main:refs/remotes/origin/main \
+            +refs/heads/plugin-stable:refs/remotes/origin/plugin-stable
           git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
+          git merge-base --is-ancestor refs/remotes/origin/plugin-stable "$GITHUB_SHA"
 
       - name: Verify live repository and protected npm environment
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: node scripts/verify-publication-gates.mjs
+        run: node scripts/verify-publication-gates.mjs --github-actions-token
+
+      - name: Verify release ordering before any publication
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          node scripts/test-release-order.mjs
+          node scripts/verify-release-order.mjs --version "$VERSION" --commit "$GITHUB_SHA"
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -78,7 +84,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm prepare:packages
       - run: pnpm check:package-assets
-      - run: pnpm check:release-version -- "${{ inputs.version }}"
+      - run: pnpm test:prepare-release
+      - run: pnpm test:release-version
+      - run: pnpm test:release-order
+      - run: pnpm check:release-version -- "${{ steps.release.outputs.version }}"
       - run: pnpm build
       - run: pnpm typecheck
       - run: pnpm test:ci
@@ -107,7 +116,7 @@ jobs:
       - name: Build immutable publication artifact
         id: candidate
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
           node scripts/publication-artifact.mjs prepare \
@@ -163,7 +172,7 @@ jobs:
       - name: Reverify artifact identity, checksums, version, and commit
         env:
           EXPECTED_CHECKSUMS_SHA256: ${{ needs.validate.outputs.checksums-sha256 }}
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ needs.validate.outputs.version }}
         run: |
           set -euo pipefail
           [[ "${{ needs.validate.outputs.artifact-digest }}" =~ ^[0-9a-f]{64}$ ]]
@@ -176,7 +185,7 @@ jobs:
 
       - name: Publish with package-specific npm trusted publishers
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ needs.validate.outputs.version }}
         run: |
           node publication-candidate/publication-artifact.mjs publish \
             --directory publication-candidate \
@@ -186,7 +195,7 @@ jobs:
 
   verify-live-install:
     name: Verify live npm install (${{ matrix.os }})
-    needs: publish
+    needs: [validate, publish]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     permissions: {}
@@ -200,40 +209,42 @@ jobs:
           node-version: "24.15.0"
           package-manager-cache: false
 
-      - name: Wait for the exact public registry version
+      - name: Wait for the exact public registry version and latest dist-tag
         shell: bash
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ needs.validate.outputs.version }}
         run: |
           set -euo pipefail
           packages=(core agent-exec browser-runner mcp github-action cli)
-          missing=()
+          mismatched=()
           for _attempt in {1..60}; do
-            missing=()
+            mismatched=()
             for package in "${packages[@]}"; do
-              if [[ "$(npm view "@preflight-scout/${package}@${VERSION}" version --registry=https://registry.npmjs.org/ 2>/dev/null || true)" != "$VERSION" ]]; then
-                missing+=("@preflight-scout/${package}@${VERSION}")
+              exact="$(npm view "@preflight-scout/${package}@${VERSION}" version --registry=https://registry.npmjs.org/ 2>/dev/null || true)"
+              latest="$(npm view "@preflight-scout/${package}" dist-tags.latest --registry=https://registry.npmjs.org/ 2>/dev/null || true)"
+              if [[ "$exact" != "$VERSION" || "$latest" != "$VERSION" ]]; then
+                mismatched+=("@preflight-scout/${package} exact=${exact:-missing} latest=${latest:-missing}")
               fi
             done
-            if (( ${#missing[@]} == 0 )); then
+            if (( ${#mismatched[@]} == 0 )); then
               exit 0
             fi
             sleep 5
           done
-          printf 'These packages did not become readable from the public registry: %s\n' "${missing[*]}" >&2
+          printf 'These packages did not expose the exact version and matching latest dist-tag: %s\n' "${mismatched[*]}" >&2
           exit 1
 
       - name: Install the exact public CLI with npm
         shell: bash
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ needs.validate.outputs.version }}
         run: npm install --global --prefix "$RUNNER_TEMP/preflight-scout-npm" "@preflight-scout/cli@${VERSION}" --registry=https://registry.npmjs.org/
 
       - name: Validate the installed command and browser on Linux
         if: runner.os == 'Linux'
         shell: bash
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ needs.validate.outputs.version }}
         run: |
           set -euo pipefail
           command="$RUNNER_TEMP/preflight-scout-npm/bin/preflight-scout"
@@ -244,8 +255,95 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ needs.validate.outputs.version }}
         run: |
           $command = Join-Path $env:RUNNER_TEMP "preflight-scout-npm\preflight-scout.cmd"
           if ((& $command --version).Trim() -ne $env:VERSION) { throw "Unexpected Preflight Scout version" }
           & $command install-browser
+
+  release:
+    name: Create matching GitHub release
+    needs: [validate, verify-live-install]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.ref }}
+
+      - name: Create or verify the matching release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          tag="v${VERSION}"
+          title="Preflight Scout ${VERSION} — public alpha"
+          [[ "$GITHUB_REPOSITORY" == "fenutech/preflight-scout" ]]
+          [[ "$GITHUB_REF_TYPE" == "tag" ]]
+          [[ "$GITHUB_REF" == "refs/tags/${tag}" ]]
+          [[ "$GITHUB_REF_NAME" == "$tag" ]]
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          [[ "$(git rev-list -n 1 "$tag")" == "$GITHUB_SHA" ]]
+
+          if existing="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json tagName 2>&1)"; then
+            :
+          elif [[ "$existing" == "release not found" ]]; then
+            gh release create "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$title" \
+              --latest \
+              --generate-notes \
+              --verify-tag
+          else
+            printf 'Could not check existing release: %s\n' "$existing" >&2
+            exit 1
+          fi
+
+          fields="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" \
+            --jq '[.tag_name, .name, (.draft | tostring), (.prerelease | tostring), (.immutable | tostring), .html_url] | @tsv')"
+          IFS=$'\t' read -r actual_tag actual_name is_draft is_prerelease is_immutable release_url <<< "$fields"
+          [[ "$actual_tag" == "$tag" ]]
+          [[ "$actual_name" == "$title" ]]
+          [[ "$is_draft" == "false" ]]
+          [[ "$is_prerelease" == "false" ]]
+          [[ "$is_immutable" == "true" ]]
+          [[ "$release_url" == "https://github.com/fenutech/preflight-scout/releases/tag/${tag}" ]]
+          [[ "$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)" == "$tag" ]]
+          printf 'Verified matching latest GitHub release for %s: %s\n' "$tag" "$release_url"
+
+      - name: Advance the stable plugin channel
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == "fenutech/preflight-scout" ]]
+          [[ "$GITHUB_REF_TYPE" == "tag" ]]
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+          git fetch --no-tags origin \
+            +refs/heads/plugin-stable:refs/remotes/origin/plugin-stable
+          stable_sha="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/heads/plugin-stable" \
+            --jq .object.sha)"
+          [[ "$stable_sha" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git rev-parse refs/remotes/origin/plugin-stable)" == "$stable_sha" ]]
+
+          if [[ "$stable_sha" != "$GITHUB_SHA" ]]; then
+            git merge-base --is-ancestor "$stable_sha" "$GITHUB_SHA"
+            gh api --method PATCH \
+              "repos/${GITHUB_REPOSITORY}/git/refs/heads/plugin-stable" \
+              -f sha="$GITHUB_SHA" \
+              -F force=false \
+              --silent
+          fi
+
+          [[ "$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/heads/plugin-stable" \
+            --jq .object.sha)" == "$GITHUB_SHA" ]]
+          printf 'Advanced plugin-stable to %s after npm and GitHub release verification.\n' "$GITHUB_SHA"

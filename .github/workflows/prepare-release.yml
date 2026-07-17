@@ -1,0 +1,137 @@
+name: Prepare release branch
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable SemVer X.Y.Z to prepare, without a leading v.
+        required: true
+        type: string
+
+concurrency:
+  group: prepare-release
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  prepare:
+    name: Prepare v${{ inputs.version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: main
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.15.0"
+          package-manager-cache: false
+
+      - name: Verify the dispatch source
+        env:
+          EXPECTED_REPOSITORY: fenutech/preflight-scout
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == "$EXPECTED_REPOSITORY" ]]
+          [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]
+          [[ "$GITHUB_REF" == "refs/heads/main" ]]
+          [[ "$GITHUB_REF_NAME" == "main" ]]
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          [[ "$(git rev-parse refs/remotes/origin/main)" == "$GITHUB_SHA" ]]
+          [[ -n "$REQUESTED_VERSION" ]]
+          [[ -z "$(git status --short)" ]]
+
+      - name: Prepare the lockstep release version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          node scripts/prepare-release.mjs "$VERSION" --date "$(date -u +%F)"
+
+      - name: Run focused release-preparation checks
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          node scripts/test-prepare-release.mjs
+          node scripts/verify-release-version.mjs "$VERSION"
+          node scripts/sync-package-assets.mjs --check
+          python3 skills/scripts/validate-skill.py skills/preflight-scout
+          git diff --check
+          [[ -n "$(git status --short)" ]]
+
+      - name: Create or reuse the reviewed release branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          branch="codex/release-v${VERSION}"
+          commit_subject="chore(release): prepare v${VERSION}"
+          remote_ref="refs/remotes/origin/${branch}"
+          remote_branch=false
+          remote_sha=""
+          gh auth setup-git
+
+          remote_query_status=0
+          git ls-remote --exit-code --heads origin "refs/heads/${branch}" > "$RUNNER_TEMP/release-branch.txt" || remote_query_status=$?
+          if [[ "$remote_query_status" == "0" ]]; then
+            remote_branch=true
+            remote_sha="$(cut -f1 "$RUNNER_TEMP/release-branch.txt")"
+            [[ "$remote_sha" =~ ^[0-9a-f]{40}$ ]]
+            git fetch --no-tags origin "+refs/heads/${branch}:${remote_ref}"
+            [[ "$(git rev-parse "$remote_ref")" == "$remote_sha" ]]
+          elif [[ "$remote_query_status" != "2" ]]; then
+            echo "Could not determine whether ${branch} already exists." >&2
+            exit "$remote_query_status"
+          fi
+
+          if [[ "$remote_branch" == "true" ]]; then
+            merge_base="$(git merge-base refs/remotes/origin/main "$remote_ref")"
+            [[ "$(git rev-list --count "${merge_base}..${remote_ref}")" == "1" ]]
+            [[ "$(git show -s --format=%s "$remote_ref")" == "$commit_subject" ]]
+            [[ "$(git show -s --format=%ae "$remote_ref")" == "41898282+github-actions[bot]@users.noreply.github.com" ]]
+            [[ "$(git show -s --format=%ce "$remote_ref")" == "41898282+github-actions[bot]@users.noreply.github.com" ]]
+          fi
+
+          git add --all
+          git diff --cached --quiet && {
+            echo "Release preparation produced no changes." >&2
+            exit 1
+          }
+          prepared_tree="$(git write-tree)"
+
+          if [[ "$remote_branch" == "true" ]]; then
+            [[ "$prepared_tree" == "$(git rev-parse "${remote_ref}^{tree}")" ]] || {
+              echo "Existing release branch ${branch} differs from this deterministic preparation; refusing to replace a reviewed tree." >&2
+              exit 1
+            }
+            echo "${branch} already contains the deterministic release tree; retaining its commit and review state."
+            prepared_sha="$remote_sha"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git switch --create "$branch"
+            git commit -m "$commit_subject"
+            git push origin "HEAD:refs/heads/${branch}"
+            prepared_sha="$(git rev-parse HEAD)"
+          fi
+
+          [[ "$(git ls-remote origin "refs/heads/${branch}" | cut -f1)" == "$prepared_sha" ]]
+          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
+          compare_url="https://github.com/${GITHUB_REPOSITORY}/compare/main...${branch}?expand=1"
+          {
+            printf 'Prepared release branch: %s\n\n' "$branch"
+            printf 'Open the ready release PR: %s\n\n' "$compare_url"
+            printf 'Dispatched CI for commit: %s\n' "$prepared_sha"
+            printf '\nDo not merge until required checks pass and the assigned reviewer or automated reviewer leaves an explicit approval, thumbs-up, or no-blocker comment.\n'
+          } >> "$GITHUB_STEP_SUMMARY"

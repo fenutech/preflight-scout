@@ -23,20 +23,23 @@ and a source or package installation of the CLI.
 ## Recommended: install the repository plugin
 
 The repository exposes the same canonical skill through Codex and Claude
-plugin manifests. This is the cleanest installation path because updates do not
-require maintaining a second copy of `SKILL.md`.
+plugin manifests. Both clients are pinned to the `plugin-stable` branch, which
+advances only after the matching npm and GitHub release has passed live install
+verification. Pair this channel with the released npm CLI. For an unreleased
+source CLI, use the direct skill folder from the same checkout instead.
 
 Codex:
 
 ```bash
-codex plugin marketplace add fenutech/preflight-scout
+codex plugin marketplace add fenutech/preflight-scout --ref plugin-stable
 codex plugin add preflight-scout@preflight-scout
 ```
 
 Alternatively, after adding the marketplace, open `/plugins`, choose
-`preflight-scout`, and install **Preflight Scout** there. The client fetches the skill
-from the public GitHub repository. Adding the source as a client marketplace
-does not create an external marketplace listing or install the separate CLI.
+`preflight-scout`, and install **Preflight Scout** there. The client fetches the
+released skill from the public GitHub repository. Adding the source as a client
+marketplace does not create an external marketplace listing or install the
+separate CLI.
 
 Invoke the installed Codex plugin with `$preflight-scout:preflight-scout`. Restart
 the client if the plugin does not appear. The shorter `$preflight-scout` name is
@@ -45,7 +48,7 @@ for a directly copied Codex skill.
 Claude Code:
 
 ```bash
-claude plugin marketplace add fenutech/preflight-scout
+claude plugin marketplace add fenutech/preflight-scout@plugin-stable
 claude plugin install preflight-scout@preflight-scout
 ```
 
@@ -149,13 +152,13 @@ local repository and browser access.
 
 Requirements: Node.js 22.13 or newer. For users and agents, prefer the released
 npm package. Because this source may be visible before publication, first
-confirm that the official `v0.1.0` release and the live npm registry both list
-`@preflight-scout/cli@0.1.0`. If either is missing, skip this install and use the
+confirm that the official `v0.1.1` release and the live npm registry both list
+`@preflight-scout/cli@0.1.1`. If either is missing, skip this install and use the
 source path below.
 
 ```bash
-npm view @preflight-scout/cli@0.1.0 version --registry=https://registry.npmjs.org/
-npm install --global @preflight-scout/cli@0.1.0 --registry=https://registry.npmjs.org/
+npm view @preflight-scout/cli@0.1.1 version --registry=https://registry.npmjs.org/
+npm install --global @preflight-scout/cli@0.1.1 --registry=https://registry.npmjs.org/
 preflight-scout install-browser
 preflight-scout --version
 ```
@@ -165,7 +168,7 @@ download during npm `postinstall`. For a quick trial after the same release
 checks:
 
 ```bash
-npm exec --yes --registry=https://registry.npmjs.org/ --package=@preflight-scout/cli@0.1.0 -- preflight-scout --help
+npm exec --yes --registry=https://registry.npmjs.org/ --package=@preflight-scout/cli@0.1.1 -- preflight-scout --help
 ```
 
 That command uses an ephemeral cached environment. It is not durable enough
@@ -200,21 +203,81 @@ changing the user's shell configuration. After updating the source checkout,
 rerun `pnpm install --frozen-lockfile` and `pnpm install:source-cli`. A planned
 npm package name is not evidence that a registry release exists.
 
+An unreleased source CLI must use the direct Codex or Claude Code skill from
+that same checkout. Do not pair it with `plugin-stable`, which stays on the
+previous published release until the complete publication workflow succeeds.
+
+## Update the CLI and plugin
+
+The released CLI and marketplace plugin use the same version. Before a full
+agent-operated run, compare the installed pair with npm:
+
+```bash
+preflight-scout update-check --skill-version 0.1.1
+```
+
+The `0.1.0` CLI does not have this command. To bootstrap the first update,
+confirm the GitHub `v0.1.1` release and npm package both exist, install the exact
+`@preflight-scout/cli@0.1.1` package from [Install the CLI](#install-the-cli),
+refresh the plugin, restart the client, and then run `update-check`.
+
+The command is read-only. It contacts only the public npm registry, does not
+send repository data, and prints an exact pinned npm command when a newer
+release exists. A CLI/skill version mismatch blocks the full workflow until the
+pair is aligned.
+
+Refresh Codex's Git marketplace snapshot, then restart Codex and open a new
+task:
+
+```bash
+codex plugin marketplace upgrade preflight-scout
+```
+
+Claude Code can update the marketplace and installed plugin explicitly:
+
+```bash
+claude plugin marketplace update preflight-scout
+claude plugin update preflight-scout@preflight-scout
+```
+
+Third-party Claude marketplaces do not auto-update by default. Leave that
+default unless you intentionally want Claude Code to refresh trusted plugin
+content automatically. Direct folder copies remain manual; replace the copied
+skill from a reviewed release or use the repository plugin instead.
+
+Installations created before the stable channel existed need one migration.
+Codex requires removing the old marketplace source, re-adding it, and
+installing the plugin again. Claude Code can replace the source directly:
+
+```bash
+# Codex
+codex plugin marketplace remove preflight-scout
+codex plugin marketplace add fenutech/preflight-scout --ref plugin-stable
+codex plugin add preflight-scout@preflight-scout
+
+# Claude Code
+claude plugin marketplace add fenutech/preflight-scout@plugin-stable
+```
+
 ## Complete Codex journey
 
-1. Install the runtime using the verified npm release or source fallback in
-   [Install the CLI](#install-the-cli), then confirm the durable command:
+1. Choose one aligned pair: the verified npm CLI plus `plugin-stable`, or the
+   source CLI plus the [direct Codex skill](#direct-codex-installation) from the
+   same checkout. Confirm the durable command:
 
    ```bash
    preflight-scout --version
    ```
 
-2. Install the plugin:
+2. For the released npm CLI, install the plugin:
 
    ```bash
-   codex plugin marketplace add fenutech/preflight-scout
+   codex plugin marketplace add fenutech/preflight-scout --ref plugin-stable
    codex plugin add preflight-scout@preflight-scout
    ```
+
+   For a source CLI, use the direct skill instructions instead and invoke
+   `$preflight-scout`.
 
 3. Quit and reopen Codex, then start a **new task** rooted in the repository
    containing the change. A task that was already running before installation
@@ -231,19 +294,23 @@ plugin name.
 
 ## Complete Claude Code journey
 
-1. Install the runtime using the verified npm release or source fallback in
-   [Install the CLI](#install-the-cli), then confirm the durable command:
+1. Choose one aligned pair: the verified npm CLI plus `plugin-stable`, or the
+   source CLI plus the [direct Claude Code skill](#direct-claude-code-installation)
+   from the same checkout. Confirm the durable command:
 
    ```bash
    preflight-scout --version
    ```
 
-2. Install the plugin:
+2. For the released npm CLI, install the plugin:
 
    ```bash
-   claude plugin marketplace add fenutech/preflight-scout
+   claude plugin marketplace add fenutech/preflight-scout@plugin-stable
    claude plugin install preflight-scout@preflight-scout
    ```
+
+   For a source CLI, use the direct skill instructions instead and invoke
+   `/preflight-scout`.
 
 3. Exit Claude Code, open a **new session** in the repository containing the
    change, and confirm that `/preflight-scout:preflight-scout` is available. A session

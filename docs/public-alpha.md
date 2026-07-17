@@ -17,13 +17,13 @@ artifacts.
 
 Requirements: Node.js 22.13 or newer. For users and agents, npm is the
 recommended CLI installation after release. Before running these commands,
-confirm that the official `v0.1.0` release and the live npm registry both list
+confirm that the official `v0.1.1` release and the live npm registry both list
 the exact package. The source tree alone is not proof that the registry package
 exists.
 
 ```bash
-npm view @preflight-scout/cli@0.1.0 version --registry=https://registry.npmjs.org/
-npm install --global @preflight-scout/cli@0.1.0 --registry=https://registry.npmjs.org/
+npm view @preflight-scout/cli@0.1.1 version --registry=https://registry.npmjs.org/
+npm install --global @preflight-scout/cli@0.1.1 --registry=https://registry.npmjs.org/
 preflight-scout install-browser
 preflight-scout --version
 ```
@@ -33,7 +33,7 @@ surprising download during npm installation. A quick, non-durable trial is
 available after the same release checks:
 
 ```bash
-npm exec --yes --registry=https://registry.npmjs.org/ --package=@preflight-scout/cli@0.1.0 -- preflight-scout --help
+npm exec --yes --registry=https://registry.npmjs.org/ --package=@preflight-scout/cli@0.1.1 -- preflight-scout --help
 ```
 
 `npm exec` uses an ephemeral cached environment; it is not the installation to
@@ -67,14 +67,44 @@ source checkout, rerun `pnpm install --frozen-lockfile` and
 `pnpm install:source-cli` so the build, verification, wrapper, and Chromium
 installation remain aligned.
 
-Then install the repository plugin for Codex or Claude Code and start a new
-client task/session so it discovers the skill. Follow the complete, copyable
-[Codex and Claude Code journeys](skills.md#complete-codex-journey). Direct-folder
-and web-upload alternatives are documented there too.
+Keep the two parts on one release. Pair the released npm CLI with the
+`plugin-stable` repository plugin. Pair an unreleased source CLI only with the
+direct skill folder from that same checkout; `plugin-stable` intentionally stays
+on the previous published release. Follow the complete, copyable
+[Codex and Claude Code journeys](skills.md#complete-codex-journey), then start a
+new client task or session so it discovers the skill.
 
 Release candidates also support installation from locally packed tarballs. A
 planned package name, source manifest, or packed tarball is not proof that a
 registry release exists.
+
+## Update an existing installation
+
+Run the read-only release check before a QA pass:
+
+```bash
+preflight-scout update-check --skill-version 0.1.1
+```
+
+The `0.1.0` CLI predates this command. For that one upgrade, confirm the GitHub
+`v0.1.1` release and npm package both exist, run the exact pinned install at the
+top of this page, refresh the plugin, restart the client, and then use
+`update-check` for later releases.
+
+It compares the installed CLI and skill version with npm's official `latest`
+release and prints exact commands when an update is available. It never runs
+npm or changes files. Refresh the agent plugin separately:
+
+```bash
+# Codex
+codex plugin marketplace upgrade preflight-scout
+
+# Claude Code
+claude plugin marketplace update preflight-scout
+claude plugin update preflight-scout@preflight-scout
+```
+
+Restart the client and open a new task or session after updating the plugin.
 
 ## Run a local check
 

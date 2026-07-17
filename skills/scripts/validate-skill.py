@@ -205,6 +205,26 @@ def validate_local_links(skill_root: Path, body: str) -> None:
         fail("SKILL.md must link to references/cli-installation.md")
 
 
+def validate_cli_compatibility_version(skill_root: Path, body: str) -> None:
+    semver = (
+        r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)"
+        r"(?:-(?:(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)"
+        r"(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?"
+        r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+    )
+    pattern = re.compile(
+        r"preflight-scout update-check --skill-version "
+        rf"({semver})(?![0-9A-Za-z.+-])"
+    )
+    skill_versions = set(pattern.findall(body))
+    reference = (skill_root / "references" / "cli-installation.md").read_text(encoding="utf-8")
+    reference_versions = set(pattern.findall(reference))
+    if len(skill_versions) != 1:
+        fail("SKILL.md must declare exactly one CLI compatibility version")
+    if reference_versions != skill_versions:
+        fail("SKILL.md and cli-installation.md must use the same CLI compatibility version")
+
+
 def validate_skill(skill_root: Path) -> None:
     skill_root = skill_root.resolve()
     skill_md = skill_root / "SKILL.md"
@@ -237,6 +257,7 @@ def validate_skill(skill_root: Path) -> None:
 
     validate_openai_metadata(skill_root / "agents" / "openai.yaml", skill_name=name)
     validate_local_links(skill_root, body)
+    validate_cli_compatibility_version(skill_root, body)
 
 
 def main() -> None:

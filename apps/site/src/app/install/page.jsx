@@ -12,8 +12,12 @@ const commands = {
   verify: `npm view @preflight-scout/cli@${RELEASE_VERSION} version --registry=https://registry.npmjs.org/`,
   cli: `npm install --global @preflight-scout/cli@${RELEASE_VERSION} --registry=https://registry.npmjs.org/`,
   browser: "preflight-scout install-browser",
-  codex: "codex plugin marketplace add fenutech/preflight-scout\ncodex plugin add preflight-scout@preflight-scout",
-  claude: "claude plugin marketplace add fenutech/preflight-scout\nclaude plugin install preflight-scout@preflight-scout",
+  codex: "codex plugin marketplace add fenutech/preflight-scout --ref plugin-stable\ncodex plugin add preflight-scout@preflight-scout",
+  claude: "claude plugin marketplace add fenutech/preflight-scout@plugin-stable\nclaude plugin install preflight-scout@preflight-scout",
+  updateCheck: `preflight-scout update-check --skill-version ${RELEASE_VERSION}`,
+  updateCli: `npm install --global @preflight-scout/cli@${RELEASE_VERSION} --registry=https://registry.npmjs.org/\npreflight-scout install-browser`,
+  updateCodex: "codex plugin marketplace upgrade preflight-scout",
+  updateClaude: "claude plugin marketplace update preflight-scout\nclaude plugin update preflight-scout@preflight-scout",
   firstRunCodex: "export PREFLIGHT_SCOUT_LLM_PROVIDER=codex-exec\npreflight-scout init --no-llm --base origin/main\npreflight-scout doctor --base origin/main --head HEAD --agent codex\npreflight-scout analyze --base origin/main --head HEAD --open-report",
   firstRunClaude: "export PREFLIGHT_SCOUT_LLM_PROVIDER=claude-exec\npreflight-scout init --no-llm --base origin/main\npreflight-scout doctor --base origin/main --head HEAD --agent claude\npreflight-scout analyze --base origin/main --head HEAD --open-report"
 };
@@ -47,8 +51,8 @@ export default function InstallPage() {
       <section className="release-check" aria-labelledby="registry-check-title">
         <CheckCircleIcon size={36} weight="thin" aria-hidden="true" />
         <div>
-          <h2 id="registry-check-title">Confirm the alpha exists before installing</h2>
-          <p>The package is intentionally version-pinned. If npm does not return <code>{RELEASE_VERSION}</code>, use the source path documented in the repository instead.</p>
+          <h2 id="registry-check-title">Confirm the release exists before installing</h2>
+          <p>First open <a href={`https://github.com/fenutech/preflight-scout/releases/tag/v${RELEASE_VERSION}`}>GitHub release v{RELEASE_VERSION}</a>, then run the npm check below. If either is missing, use the source CLI and direct skill from the same checkout as documented in the repository; do not mix unreleased source with <code>plugin-stable</code>.</p>
           <CommandLine copyText={commands.verify}>{commands.verify}</CommandLine>
         </div>
       </section>
@@ -76,7 +80,21 @@ export default function InstallPage() {
           <div><h3>Codex</h3><CommandLine copyText={commands.codex} multiline>{commands.codex}</CommandLine><p>Invoke <code>$preflight-scout:preflight-scout</code>.</p></div>
           <div><h3>Claude Code</h3><CommandLine copyText={commands.claude} multiline>{commands.claude}</CommandLine><p>Invoke <code>/preflight-scout:preflight-scout</code>.</p></div>
         </div>
-        <p className="agent-session-note">After either install, restart the client and start a new task or session in the repository before invoking the skill.</p>
+        <p className="agent-session-note"><code>plugin-stable</code> moves only after npm publication, clean Linux and Windows installs, and the matching GitHub release succeed. After either install, restart the client and start a new task or session in the repository before invoking the skill.</p>
+      </section>
+
+      <section className="next-callout" aria-labelledby="updates-title">
+        <p className="eyebrow">UPDATES</p>
+        <h2 id="updates-title">Keep the CLI and agent skill on the same release.</h2>
+        <p>Run the check before a full QA pass. The CLI reports its installed version, the skill supplies its baked compatibility version, and npm provides the public release metadata. The check does not install anything or send repository data.</p>
+        <p>The <code>0.1.0</code> CLI does not include this command. For that first update, verify the GitHub and npm release above, install the exact CLI, refresh the plugin, restart the client, and then run the compatibility check.</p>
+        <CommandLine copyText={commands.updateCheck}>{commands.updateCheck}</CommandLine>
+        <div className="agent-command-grid">
+          <div><h3>CLI</h3><CommandLine copyText={commands.updateCli} multiline>{commands.updateCli}</CommandLine></div>
+          <div><h3>Codex plugin</h3><CommandLine copyText={commands.updateCodex}>{commands.updateCodex}</CommandLine></div>
+          <div><h3>Claude Code plugin</h3><CommandLine copyText={commands.updateClaude} multiline>{commands.updateClaude}</CommandLine></div>
+        </div>
+        <p>Restart Codex or Claude Code, open a new task or session, and rerun the compatibility check after a marketplace refresh.</p>
       </section>
 
       <aside className="next-callout">

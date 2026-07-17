@@ -73,6 +73,15 @@ release checks:
 npm exec --yes --registry=https://registry.npmjs.org/ --package=${manifest.name}@${manifest.version} -- preflight-scout --help
 \`\`\`
 
+For an existing installation, check npm without changing the machine:
+
+\`\`\`bash
+preflight-scout update-check
+\`\`\`
+
+When a newer release exists, the command prints the exact pinned npm install
+command. It never updates itself.
+
 Until that exact release is live—or when contributing—use a stable trusted
 checkout of the monorepo. The source installer builds and verifies the CLI,
 installs a durable wrapper, and installs Chromium:

@@ -14,12 +14,19 @@ description: "Review a pull request before release: map the diff, build a focuse
 ## Run the full local workflow
 
 1. Inspect the repository status without changing it. Resolve the intended base and head refs; ask only when the choice materially changes the diff.
-2. Confirm the CLI and inspect first-run context:
+2. Confirm that the `0.1.1` skill and CLI match, check for a newer official
+   release, and inspect first-run context:
 
 ```bash
 preflight-scout --version
+preflight-scout update-check --skill-version 0.1.1
 preflight-scout init --dry-run --base <base>
 ```
+
+Stop full execution when `update-check` is unavailable or reports an
+incompatible CLI/skill pair, and use
+[CLI installation](references/cli-installation.md). If npm is temporarily
+unreachable but the installed pair matches, report the warning and continue.
 
 The source-checkout installer already installs Chromium. After another installation path, or when `doctor` reports that Chromium cannot launch, run `preflight-scout install-browser` once and then repeat the diagnostic. Use `--with-deps` only on a supported Linux host where installing operating-system browser dependencies is intended.
 

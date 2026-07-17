@@ -152,12 +152,23 @@ function validatePackedManifest(source, packed, packageVersions) {
     }
   }
   for (const section of ["dependencies", "optionalDependencies", "peerDependencies"]) {
+    for (const [name, range] of Object.entries(source[section] ?? {})) {
+      const internalVersion = packageVersions.get(name);
+      if (internalVersion !== undefined && range !== "workspace:*") {
+        throw new Error(`${source.name} must declare internal ${section} ${name} as workspace:* for an exact release pin.`);
+      }
+    }
     const expected = Object.fromEntries(Object.entries(source[section] ?? {}).map(([name, range]) => [
       name,
       range.startsWith("workspace:") ? resolveWorkspaceRange(range, packageVersions.get(name)) : range
     ]));
     if (stableJson(packed[section] ?? {}) !== stableJson(expected)) {
       throw new Error(`${source.name} tarball changed ${section} beyond workspace-range conversion.`);
+    }
+    for (const [name, internalVersion] of packageVersions) {
+      if (packed[section]?.[name] !== undefined && packed[section][name] !== internalVersion) {
+        throw new Error(`${source.name} tarball must pin internal ${section} ${name} exactly to ${internalVersion}.`);
+      }
     }
   }
   const expectedScripts = Object.fromEntries(Object.entries(source.scripts ?? {})

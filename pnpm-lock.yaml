@@ -55,7 +55,7 @@ importers:
   packages/agent-exec:
     dependencies:
       '@preflight-scout/core':
-        specifier: workspace:^
+        specifier: workspace:*
         version: link:../core
     devDependencies:
       '@types/node':
@@ -65,7 +65,7 @@ importers:
   packages/browser-runner:
     dependencies:
       '@preflight-scout/core':
-        specifier: workspace:^
+        specifier: workspace:*
         version: link:../core
       playwright:
         specifier: ^1.61.1
@@ -81,16 +81,16 @@ importers:
   packages/cli:
     dependencies:
       '@preflight-scout/agent-exec':
-        specifier: workspace:^
+        specifier: workspace:*
         version: link:../agent-exec
       '@preflight-scout/browser-runner':
-        specifier: workspace:^
+        specifier: workspace:*
         version: link:../browser-runner
       '@preflight-scout/core':
-        specifier: workspace:^
+        specifier: workspace:*
         version: link:../core
       '@preflight-scout/mcp':
-        specifier: workspace:^
+        specifier: workspace:*
         version: link:../mcp
       commander:
         specifier: ^15.0.0
@@ -125,10 +125,10 @@ importers:
         specifier: ^9.1.1
         version: 9.1.1
       '@preflight-scout/browser-runner':
-        specifier: workspace:^
+        specifier: workspace:*
         version: link:../browser-runner
       '@preflight-scout/core':
-        specifier: workspace:^
+        specifier: workspace:*
         version: link:../core
     devDependencies:
       '@types/node':
@@ -141,7 +141,7 @@ importers:
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)
       '@preflight-scout/core':
-        specifier: workspace:^
+        specifier: workspace:*
         version: link:../core
     devDependencies:
       '@types/node':

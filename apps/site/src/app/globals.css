@@ -300,6 +300,17 @@ select {
   color: var(--lime);
 }
 
+.release-availability-note {
+  margin: 14px 0 0;
+  color: #a5aaa7;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.release-availability-note a {
+  color: var(--lime);
+}
+
 .quick-install {
   position: relative;
   margin: 24px 0 0;
