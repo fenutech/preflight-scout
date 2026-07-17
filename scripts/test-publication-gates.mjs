@@ -57,6 +57,7 @@ assert.equal(result.tagRuleset, "Protect release tags");
 assert.equal(result.immutableReleaseSetting, "verified");
 assert.equal(result.stablePluginBranch, "plugin-stable");
 assert.equal(result.stableBranchRuleset, "Protect plugin-stable");
+assert.equal(result.stableBranchBypassActors, "verified");
 await assert.rejects(
   verifyPublicationGates({ token: "test", fetchImpl: fakeFetch({ ...valid, repository: { ...valid.repository, private: true, visibility: "private" } }) }),
   /live and public/
@@ -70,16 +71,41 @@ await assert.rejects(
   /immutable releases enabled/
 );
 const workflowTokenCalls = [];
+const { bypass_actors: _omittedByGitHub, ...workflowVisibleStableRuleset } = valid.rulesetDetails[8];
 const workflowTokenResult = await verifyPublicationGates({
   token: "test",
   checkImmutableReleaseSetting: false,
-  fetchImpl: fakeFetch(valid, workflowTokenCalls)
+  allowOmittedStableBranchBypassActors: true,
+  fetchImpl: fakeFetch(withRuleset(valid, 8, workflowVisibleStableRuleset), workflowTokenCalls)
 });
 assert.equal(workflowTokenResult.immutableReleaseSetting, "admin-only-check-deferred");
+assert.equal(workflowTokenResult.stableBranchBypassActors, "admin-only-check-deferred");
 assert.equal(workflowTokenCalls.some((url) => url.endsWith("/immutable-releases")), false);
 await assert.rejects(
   verifyPublicationGates({ token: "test", checkImmutableReleaseSetting: "false", fetchImpl: fakeFetch(valid) }),
   /must be a boolean/
+);
+await assert.rejects(
+  verifyPublicationGates({ token: "test", allowOmittedStableBranchBypassActors: "true", fetchImpl: fakeFetch(valid) }),
+  /must be a boolean/
+);
+await assert.rejects(
+  verifyPublicationGates({
+    token: "test",
+    fetchImpl: fakeFetch(withRuleset(valid, 8, workflowVisibleStableRuleset))
+  }),
+  /must not allow bypass actors/
+);
+await assert.rejects(
+  verifyPublicationGates({
+    token: "test",
+    allowOmittedStableBranchBypassActors: true,
+    fetchImpl: fakeFetch(withRuleset(valid, 8, {
+      ...valid.rulesetDetails[8],
+      bypass_actors: [{ actor_id: 1, actor_type: "RepositoryRole", bypass_mode: "always" }]
+    }))
+  }),
+  /must not allow bypass actors/
 );
 await assert.rejects(
   verifyPublicationGates({

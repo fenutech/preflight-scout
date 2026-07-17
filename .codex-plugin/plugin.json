@@ -1,6 +1,6 @@
 {
   "name": "preflight-scout",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "PR-aware release QA that maps changes, runs focused checks and bounded browser missions, and reports evidence.",
   "author": {
     "name": "Andrea Fenu",

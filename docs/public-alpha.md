@@ -17,13 +17,13 @@ artifacts.
 
 Requirements: Node.js 22.13 or newer. For users and agents, npm is the
 recommended CLI installation after release. Before running these commands,
-confirm that the official `v0.1.1` release and the live npm registry both list
+confirm that the official `v0.1.2` release and the live npm registry both list
 the exact package. The source tree alone is not proof that the registry package
 exists.
 
 ```bash
-npm view @preflight-scout/cli@0.1.1 version --registry=https://registry.npmjs.org/
-npm install --global @preflight-scout/cli@0.1.1 --registry=https://registry.npmjs.org/
+npm view @preflight-scout/cli@0.1.2 version --registry=https://registry.npmjs.org/
+npm install --global @preflight-scout/cli@0.1.2 --registry=https://registry.npmjs.org/
 preflight-scout install-browser
 preflight-scout --version
 ```
@@ -33,7 +33,7 @@ surprising download during npm installation. A quick, non-durable trial is
 available after the same release checks:
 
 ```bash
-npm exec --yes --registry=https://registry.npmjs.org/ --package=@preflight-scout/cli@0.1.1 -- preflight-scout --help
+npm exec --yes --registry=https://registry.npmjs.org/ --package=@preflight-scout/cli@0.1.2 -- preflight-scout --help
 ```
 
 `npm exec` uses an ephemeral cached environment; it is not the installation to
@@ -83,11 +83,11 @@ registry release exists.
 Run the read-only release check before a QA pass:
 
 ```bash
-preflight-scout update-check --skill-version 0.1.1
+preflight-scout update-check --skill-version 0.1.2
 ```
 
 The `0.1.0` CLI predates this command. For that one upgrade, confirm the GitHub
-`v0.1.1` release and npm package both exist, run the exact pinned install at the
+`v0.1.2` release and npm package both exist, run the exact pinned install at the
 top of this page, refresh the plugin, restart the client, and then use
 `update-check` for later releases.
 

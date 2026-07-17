@@ -12,13 +12,13 @@ archive, so do not treat this file alone as proof that a registry release exists
 
 Requirements: Node.js 22.13 or newer. For users and agents, the
 recommended release installation uses npm. This README can exist in source
-before publication, so first confirm that the official v0.1.1
-release and the live registry both list @preflight-scout/cli@0.1.1.
+before publication, so first confirm that the official v0.1.2
+release and the live registry both list @preflight-scout/cli@0.1.2.
 After both checks pass:
 
 ```bash
-npm view @preflight-scout/cli@0.1.1 version --registry=https://registry.npmjs.org/
-npm install --global @preflight-scout/cli@0.1.1 --registry=https://registry.npmjs.org/
+npm view @preflight-scout/cli@0.1.2 version --registry=https://registry.npmjs.org/
+npm install --global @preflight-scout/cli@0.1.2 --registry=https://registry.npmjs.org/
 preflight-scout install-browser
 preflight-scout --version
 ```
@@ -27,7 +27,7 @@ Keep the exact version pin. For a quick, non-durable trial after the same
 release checks:
 
 ```bash
-npm exec --yes --registry=https://registry.npmjs.org/ --package=@preflight-scout/cli@0.1.1 -- preflight-scout --help
+npm exec --yes --registry=https://registry.npmjs.org/ --package=@preflight-scout/cli@0.1.2 -- preflight-scout --help
 ```
 
 For an existing installation, check npm without changing the machine:
