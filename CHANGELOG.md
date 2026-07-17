@@ -6,7 +6,23 @@ All notable changes to Preflight Scout are documented here. This project follows
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-07-17
+
+Publication of `v0.1.2` stopped before the first npm write because the
+registry setup injected a placeholder `NODE_AUTH_TOKEN` into the token-free
+trusted-publishing job. No package, GitHub release, or stable plugin channel
+was changed; the protected tag remains as an audit record.
+
+### Fixed
+
+- Kept the npm publication job strictly OIDC-only by avoiding registry setup
+  that injects a token placeholder. The pinned npm bootstrap and verified
+  publisher both select the public registry explicitly.
+
 ## [0.1.2] - 2026-07-17
+
+Publication stopped before the first npm write. This ruleset-gate fix therefore
+ships in `0.1.3`; the protected `v0.1.2` tag remains as an audit record.
 
 ### Fixed
 
@@ -18,8 +34,8 @@ All notable changes to Preflight Scout are documented here. This project follows
 ## [0.1.1] - 2026-07-17
 
 Publication stopped at the live repository gate before any artifact, npm
-package, or GitHub release was created. These changes therefore ship in
-`0.1.2`; the protected `v0.1.1` tag remains as an audit record.
+package, or GitHub release was created. These changes ultimately ship in
+`0.1.3`; the protected `v0.1.1` tag remains as an audit record.
 
 ### Added
 
