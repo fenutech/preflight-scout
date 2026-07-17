@@ -6,6 +6,13 @@ All notable changes to Preflight Scout are documented here. This project follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Bound live browser assertion decisions to the exact target and expected text
+  from the reviewed mission, so an LLM-supplied locator cannot weaken the
+  assertion or incorrectly block execution when the reviewed assertion is
+  valid.
+
 ## [0.1.3] - 2026-07-17
 
 Publication of `v0.1.2` stopped before the first npm write because the
