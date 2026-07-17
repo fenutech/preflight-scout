@@ -387,6 +387,9 @@ program
     progress("Loading environment and QA contract");
     await loadEnvFile(root, options.envFile);
     const contract = await loadContract(root);
+    // Validate contract-derived filesystem policy before starting either LLM
+    // call. This keeps legacy or hand-edited unsafe configs fail-fast.
+    const outputDir = await resolveAnalysisOutputDir(root, options.outputDir, contract.defaults?.outputDir);
     const base = await resolveBaseRef(root, options.base, contract);
     const appUrl = resolveOptionalAnalysisTargetUrl(contract, { url: options.url, target: options.target, env: options.env });
     if (appUrl) progress(`Analysis target context: ${appUrl}`);
@@ -399,7 +402,6 @@ program
       body: options.body,
       progress
     });
-    const outputDir = await resolveAnalysisOutputDir(root, options.outputDir, contract.defaults?.outputDir);
     progress(`Writing analysis artifacts to ${outputDir}`);
     await writeAnalysisArtifacts(outputDir, {
       impactMap: result.impactMap,

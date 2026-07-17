@@ -145,6 +145,7 @@ packages/cli/src/doctor.test.ts
 packages/cli/src/doctor.ts
 packages/cli/src/generic-repo-smoke.test.ts
 packages/cli/src/index.ts
+packages/cli/src/init-analyze.test.ts
 packages/cli/src/local.test.ts
 packages/cli/src/local.ts
 packages/cli/src/missions.test.ts

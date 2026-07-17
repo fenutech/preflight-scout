@@ -13,6 +13,13 @@ All notable changes to Preflight Scout are documented here. This project follows
 - Made the live publication gate wait for all six package versions before the
   clean CLI installation check.
 
+### Fixed
+
+- Kept LLM-generated init contracts on the guarded
+  `.preflight-scout/runs/latest` artifact path unless a human supplies an
+  explicit init path, and made analysis reject unsafe legacy paths before
+  starting either model call.
+
 ## [0.1.0] - 2026-07-16
 
 Initial public alpha release.
