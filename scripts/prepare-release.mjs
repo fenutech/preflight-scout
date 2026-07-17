@@ -93,13 +93,6 @@ export async function prepareRelease(targetVersion, options = {}) {
     `$1${targetVersion}$2`,
     "MCP runtime version"
   ));
-  await plan(".github/workflows/release-candidate.yml", (text) => replaceExactlyOne(
-    text,
-    new RegExp(`(default:\\s*["'])${escapeRegExp(currentVersion)}(["'])`),
-    `$1${targetVersion}$2`,
-    "release-candidate default"
-  ));
-
   for (const file of releaseInstallDocuments) {
     await plan(file, (text) => {
       let updated = replaceAtLeastOne(

@@ -72,8 +72,7 @@ export async function verifyReleaseVersion(requested, root = defaultRoot) {
 
   const sourceVersions = [
     await readSourceVersion(root, "packages/cli/src/index.ts", /\.version\(["']([^"']+)["']\)/, "CLI --version"),
-    await readSourceVersion(root, "packages/mcp/src/index.ts", /name:\s*["']preflight-scout["'][\s\S]*?version:\s*["']([^"']+)["']/, "MCP client version"),
-    await readWorkflowInputDefault(root, ".github/workflows/release-candidate.yml", "version", "release-candidate default")
+    await readSourceVersion(root, "packages/mcp/src/index.ts", /name:\s*["']preflight-scout["'][\s\S]*?version:\s*["']([^"']+)["']/, "MCP client version")
   ];
   for (const item of sourceVersions) {
     if (item.version !== requested) mismatches.push(`${item.file} (${item.label}): ${item.version}`);
@@ -139,37 +138,6 @@ async function readSourceVersion(root, file, pattern, label) {
   const match = source.match(pattern);
   if (!match?.[1]) throw new Error(`Could not locate ${label} in ${file}.`);
   return { file, label, version: match[1] };
-}
-
-async function readWorkflowInputDefault(root, file, inputName, label) {
-  const lines = (await readFile(path.join(root, file), "utf8")).split(/\r?\n/);
-  const inputsIndex = lines.findIndex((line) => line.trim() === "inputs:");
-  if (inputsIndex < 0) throw new Error(`Could not locate workflow inputs in ${file}.`);
-  const inputsIndent = indentation(lines[inputsIndex]);
-
-  for (let index = inputsIndex + 1; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (!line.trim() || line.trimStart().startsWith("#")) continue;
-    const indent = indentation(line);
-    if (indent <= inputsIndent) break;
-    if (line.trim() !== `${inputName}:`) continue;
-
-    for (let nestedIndex = index + 1; nestedIndex < lines.length; nestedIndex += 1) {
-      const nestedLine = lines[nestedIndex];
-      if (!nestedLine.trim() || nestedLine.trimStart().startsWith("#")) continue;
-      const nestedIndent = indentation(nestedLine);
-      if (nestedIndent <= indent) break;
-      const match = nestedLine.trim().match(/^default:\s*(?:"([^"]*)"|'([^']*)'|([^#\s]+))\s*(?:#.*)?$/);
-      const version = match?.[1] ?? match?.[2] ?? match?.[3];
-      if (version !== undefined) return { file, label, version };
-    }
-    break;
-  }
-  throw new Error(`Could not locate ${label} in ${file}.`);
-}
-
-function indentation(line) {
-  return line.length - line.trimStart().length;
 }
 
 function escapeRegExp(value) {

@@ -14,7 +14,7 @@ try {
   const result = await verifyReleaseVersion(version, fixtureRoot);
   assert.deepEqual(result, {
     manifests: 6,
-    sourceVersions: 3,
+    sourceVersions: 2,
     releaseDocuments: 5,
     packageReadmes: 2
   });
@@ -99,7 +99,7 @@ async function createFixture(root, releaseVersion) {
       "  workflow_dispatch:",
       "    inputs:",
       "      version:",
-      `        default: "${releaseVersion}"`,
+      "        required: true",
       ""
     ].join("\n"),
     "README.md": installDocument,
