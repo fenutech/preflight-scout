@@ -68,7 +68,7 @@ jobs:
       - run: pnpm test:browser
       - run: pnpm audit --prod --audit-level high
       - run: pnpm check:repo
-      - run: pnpm test:public-export
+      - run: pnpm test:repo-boundary
       - run: pnpm test:publication
       - run: pnpm pack:check
       - run: pnpm test:npm-global-smoke

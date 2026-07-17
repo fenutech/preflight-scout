@@ -1,19 +1,24 @@
 # Maintainer release checklist
 
-This checklist prepares and validates a release candidate. Completing it does
-not authorize a tag, package publication, GitHub release, or marketplace
-submission.
+This checklist prepares and validates a release from the canonical public
+repository, [`fenutech/preflight-scout`](https://github.com/fenutech/preflight-scout).
+Completing it does not authorize a tag, package publication, GitHub release, or
+marketplace submission.
 
 ## Candidate
 
-- [ ] Choose the exact version and commit; confirm the tree is clean.
+- [ ] Choose the exact version and a commit contained in public `main`; confirm
+      the tree is clean and synchronized with `fenutech/preflight-scout`.
+- [ ] Confirm the release commit arrived through a pull request with green
+      required checks, resolved review threads, and a clear positive signal
+      from the automated or assigned reviewer. An approval, thumbs-up, or
+      explicit no-blocker comment counts; silence does not.
 - [ ] Align package versions, CLI output, Action metadata, skill metadata, and
       the matching `CHANGELOG.md` section.
 - [ ] Confirm supported Node.js, pnpm, Codex, and Claude Code versions.
-- [ ] Before the first npm release, confirm the maintainer controls the npm
-      `@preflight-scout` scope and can publish all six package names; reserve or
-      rename the scope before advertising registry installation. This is a hard
-      gate, not a post-publication cleanup item.
+- [ ] Confirm the maintainer still controls the npm `@preflight-scout` scope,
+      all published package names, and each package's trusted-publisher
+      configuration.
 
 ## Legal, security, and privacy
 
@@ -27,8 +32,8 @@ submission.
       personal data, private hostnames, local paths, and customer source.
 - [ ] Review prompt-injection boundaries, shell execution, path containment,
       redaction, approval gates, and workflow permissions.
-- [ ] Enable and test GitHub private vulnerability reporting before announcing
-      the release or publishing packages.
+- [ ] Confirm GitHub private vulnerability reporting remains enabled and test
+      the reporting path when repository security settings change.
 
 ## Documentation and installation
 
@@ -61,17 +66,17 @@ submission.
       documentation links against current official sources.
 - [ ] Confirm the GitHub Action documentation names a real released commit SHA,
       not a placeholder or an unpublished tag.
-- [ ] Treat the clean public bootstrap as one coordinated, unannounced launch
-      window: create the public repository with its final canonical URLs, build
-      and inspect the noindexed Pages alias, publish and verify the exact npm
-      release, then connect `preflightscout.com` before announcing the project.
+- [ ] Confirm every code, documentation, package, and website change comes from
+      `fenutech/preflight-scout`. Do not release from
+      `fenutech/preflight-scout-internal` or the archived historical staging
+      repository.
 - [ ] Keep `apps/site` in the same public monorepo. Confirm the root
       `wrangler.json` names `preflight-scout`, exports `apps/site/out`, pins its
       compatibility date, disables Wrangler telemetry, and contains no secret.
-- [ ] Use Cloudflare Pages' native Git connection to
-      `fenutech/preflight-scout`. Do not add AWS CDK, Terraform, OpenTofu,
-      Direct Upload, or a Cloudflare API token to the repository or GitHub
-      Actions.
+- [ ] Confirm Cloudflare Pages' native Git connection still points to
+      `fenutech/preflight-scout` and protected `main`. Do not add AWS CDK,
+      Terraform, OpenTofu, Direct Upload, or a Cloudflare API token to the
+      repository or GitHub Actions.
 - [ ] Build `apps/site` as a static export, run `pnpm check:site`, inspect the
       desktop and mobile routes in a real browser, and verify the live domain
       serves the same reviewed output without console errors or missing assets.
@@ -107,7 +112,7 @@ pnpm check:repo
 pnpm check:package-assets
 pnpm test:package-guard
 pnpm test:source-cli-wrapper
-pnpm test:public-export
+pnpm test:repo-boundary
 pnpm test:publication
 pnpm pack:check
 pnpm test:npm-global-smoke
@@ -145,63 +150,49 @@ pnpm -r --filter './packages/*' publish --access public --dry-run --no-git-check
 - [ ] Record checksums for package tarballs and the Agent Skill archive.
 - [ ] Review release notes, known limitations, upgrade notes, and license
       boundaries.
-- [ ] Ask a second reviewer to verify installation, security boundaries, and
-      the sample report.
+- [ ] Ask the assigned reviewer to verify installation, security boundaries,
+      and the sample report, and wait for a clear positive signal before
+      merging the release pull request.
 
 ## Authorized publication only
 
 Stop here unless the maintainer explicitly authorizes each external action.
 
-### Connect Cloudflare Pages
+### Verify the website deployment
 
-- [ ] After the clean public repository exists, explicitly authorize the
-      one-time Pages setup before connecting any GitHub or Cloudflare account.
-- [ ] Connect the native Cloudflare Pages Git integration only to
-      `fenutech/preflight-scout`, use protected `main`, and reproduce the
-      reviewed root, Node, build-command, and output-directory settings from the
-      private runbook.
-- [ ] Inspect the noindexed `pages.dev` deployment before adding a product
-      domain. A green Pages build does not authorize npm publication or public
-      announcement.
-- [ ] Only after the exact npm release and external install smoke pass, add and
-      validate `preflightscout.com`, then add `www.preflightscout.com` and a
-      permanent Single Redirect that preserves the request path and query
-      string while sending `www` to the apex.
-- [ ] Confirm active HTTPS, HTTP-to-HTTPS, `www`-to-apex, trailing-slash, and
-      noindex behavior from an external browser. Confirm GitHub contains no
+- [ ] When the release changes `apps/site`, inspect the Cloudflare preview
+      deployment from the release pull request before merging it.
+- [ ] After merge, confirm the production deployment came from the expected
+      public `main` commit. A green Pages build does not authorize npm
+      publication or a public announcement.
+- [ ] Confirm `preflightscout.com` and `www.preflightscout.com` use active HTTPS,
+      `www` redirects permanently to the apex while preserving the path and
+      query string, and canonical/trailing-slash behavior is unchanged.
+- [ ] Confirm the `pages.dev` alias remains noindexed and GitHub contains no
       Cloudflare API token.
 
 ### Release from the public repository
 
-- [ ] Use a reviewed commit already in the repository's normal history.
-- [ ] Configure the repository's `npm-production` environment before
-      running the workflow. Require at least one reviewer, restrict selected
-      deployment tags to the exact `v*` pattern, and do not rely on the
-      unprotected environment GitHub would create automatically.
-- [ ] Add an active repository tag ruleset for `v*`, then create the protected
-      `v<version>` tag at a commit contained in `main`.
-- [ ] For the first publication only, create or confirm the npm
-      `preflight-scout` organization, enable account-level 2FA, and create a
-      short-lived granular token with **Read and write** under **Packages and
-      scopes** for `@preflight-scout` plus **Bypass 2FA**. Organization access
-      alone is not enough. Store the token as the `NPM_TOKEN` secret only on
-      `npm-production`, dispatch
-      `.github/workflows/publish.yml` in `bootstrap-token` mode on that tag, and
-      review the exact typed confirmation. Do not publish locally: local
-      publication cannot satisfy this repository's provenance requirement.
-- [ ] After the first publication, configure each of the six package-specific
-      npm trusted publishers for `fenutech/preflight-scout`, workflow `publish.yml`,
-      environment `npm-production`, with `npm publish` allowed. Use the package
-      settings or `npm trust github <package> --repo fenutech/preflight-scout
-      --file publish.yml --env npm-production --allow-publish`, then verify each
-      relationship with `npm trust list <package>`.
-- [ ] After all six trusted publishers are verified, set each package's
-      **Publishing access** to **Require two-factor authentication and disallow
-      tokens**, delete the `NPM_TOKEN` environment secret, and revoke the
-      one-time bootstrap token. Do not retain either as a fallback.
-- [ ] For every later version, dispatch the same workflow in
-      `trusted-publishing` mode. That mode must have no `NODE_AUTH_TOKEN` and
-      authenticates only through GitHub OIDC.
+- [ ] Use a reviewed commit already in the public repository's normal history.
+- [ ] Confirm the active `npm-production` environment still requires its
+      reviewer and restricts deployment tags to the exact `v*` pattern.
+- [ ] Confirm the active repository tag ruleset still protects `v*`, then
+      create `v<version>` at a commit contained in `main`.
+- [ ] Verify each package-specific npm trusted publisher names
+      `fenutech/preflight-scout`, workflow `publish.yml`, and environment
+      `npm-production`. Confirm each relationship with
+      `npm trust list <package>`.
+- [ ] Confirm every package's publishing access requires two-factor
+      authentication and disallows tokens. The `npm-production` environment
+      must not contain `NPM_TOKEN`, and the publish job must not set
+      `NODE_AUTH_TOKEN`.
+- [ ] Dispatch `.github/workflows/publish.yml` on the protected tag and review
+      the exact typed confirmation. The workflow publishes only through
+      package-specific trusted publishers and GitHub OIDC; do not publish
+      locally.
+- [ ] Verify all six exact package versions with `npm view`, install the exact
+      CLI version from an external clean environment, install Chromium, and run
+      the fresh-shell and fresh-agent checks again.
 - [ ] Create the GitHub release or submit marketplace entries only when those
       separate external actions were explicitly approved.
 - [ ] Verify every public install path from a clean external account.
