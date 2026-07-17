@@ -6,6 +6,8 @@ All notable changes to Preflight Scout are documented here. This project follows
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-07-17
+
 ### Fixed
 
 - Kept automated release preparation within the GitHub Actions token boundary
