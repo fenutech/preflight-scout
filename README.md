@@ -45,15 +45,15 @@ only the CLI leaves the human to drive the commands manually.
 Requirements: Node.js 22.13 or newer. For users and agents, the recommended
 release installation uses npm and does not require pnpm. This repository may be
 available before its packages are published, so first confirm that the official
-`v0.1.0` release and the live npm registry both list
-`@preflight-scout/cli@0.1.0`. If either is missing, do not run the registry
+`v0.1.1` release and the live npm registry both list
+`@preflight-scout/cli@0.1.1`. If either is missing, do not run the registry
 install.
 
 After both checks pass, install the exact version and its matching browser:
 
 ```bash
-npm view @preflight-scout/cli@0.1.0 version --registry=https://registry.npmjs.org/
-npm install --global @preflight-scout/cli@0.1.0 --registry=https://registry.npmjs.org/
+npm view @preflight-scout/cli@0.1.1 version --registry=https://registry.npmjs.org/
+npm install --global @preflight-scout/cli@0.1.1 --registry=https://registry.npmjs.org/
 preflight-scout install-browser
 preflight-scout --version
 ```
@@ -65,7 +65,7 @@ the npm package does not download a browser during `postinstall`.
 After the same release and registry checks, this is useful for a quick trial:
 
 ```bash
-npm exec --yes --registry=https://registry.npmjs.org/ --package=@preflight-scout/cli@0.1.0 -- preflight-scout --help
+npm exec --yes --registry=https://registry.npmjs.org/ --package=@preflight-scout/cli@0.1.1 -- preflight-scout --help
 ```
 
 `npm exec` uses an ephemeral cached environment. It is not a durable agent
@@ -107,15 +107,26 @@ After pulling or otherwise updating the source checkout, rerun
 `pnpm install --frozen-lockfile` and `pnpm install:source-cli` so the pinned
 command, build verification, and Chromium installation match that checkout.
 
+Pair an unreleased source CLI only with the skill folder from that same checkout.
+Use the [direct Codex or Claude Code installation](docs/skills.md#direct-codex-installation)
+and invoke the short `$preflight-scout` or `/preflight-scout` name. Do not mix an
+unreleased source CLI with the `plugin-stable` marketplace channel; that branch
+intentionally remains on the previous published version. If you prefer the
+marketplace install, wait for the matching GitHub and npm release.
+
 The package name and version in this repository describe the intended release;
 they are not evidence that the package is live in the registry.
 
 ### 2. Install the Agent Skill
 
+The marketplace commands below are for the released npm CLI. If you used the
+source fallback above, install the skill directly from the same checkout
+instead.
+
 Codex:
 
 ```bash
-codex plugin marketplace add fenutech/preflight-scout
+codex plugin marketplace add fenutech/preflight-scout --ref plugin-stable
 codex plugin add preflight-scout@preflight-scout
 ```
 
@@ -125,7 +136,7 @@ Alternatively, after adding the marketplace, open `/plugins`, select
 Claude Code:
 
 ```bash
-claude plugin marketplace add fenutech/preflight-scout
+claude plugin marketplace add fenutech/preflight-scout@plugin-stable
 claude plugin install preflight-scout@preflight-scout
 ```
 
@@ -144,11 +155,58 @@ Use $preflight-scout:preflight-scout to verify the current change against origin
 Use /preflight-scout:preflight-scout to verify the current change against origin/main. Start with setup diagnostics, let me review the mission before browser execution, do not run dangerous actions, and finish with release readiness plus evidence paths.
 ```
 
-These commands install the skill directly from the public GitHub repository.
-Adding the repository to a client's plugin marketplaces installs from source;
-it does not create an external marketplace listing or install the separate CLI.
+These commands install from the `plugin-stable` branch. That branch advances
+only after the same release has been published to npm, installed successfully
+on Linux and Windows, and recorded as the latest GitHub release. Adding it to a
+client does not create an external marketplace listing or install the separate
+CLI.
 Direct skill-folder and web-upload fallbacks are documented in
 [docs/skills.md](docs/skills.md).
+
+### Keep the CLI and skill current
+
+Preflight Scout does not replace its own executable. Check the official npm
+release and print the exact update commands with:
+
+```bash
+preflight-scout update-check --skill-version 0.1.1
+```
+
+The `0.1.0` CLI predates `update-check`. To upgrade from it, first confirm that
+both the GitHub `v0.1.1` release and `@preflight-scout/cli@0.1.1` exist, then run
+the exact npm and browser commands in [Install the CLI](#1-install-the-cli).
+Refresh the plugin below, restart the client, and use `update-check` from then
+on.
+
+Update the CLI with the exact version reported by that command, then install
+the matching browser build. Refresh the plugin separately:
+
+```bash
+# Codex
+codex plugin marketplace upgrade preflight-scout
+
+# Claude Code
+claude plugin marketplace update preflight-scout
+claude plugin update preflight-scout@preflight-scout
+```
+
+Restart Codex or Claude Code and start a new task or session after the plugin
+update. For GitHub Actions, keep the full commit SHA pin and let Dependabot or
+Renovate propose reviewed updates; do not switch the Action to a floating tag.
+
+If you installed the marketplace before the stable channel existed, migrate it
+once. Codex requires removing the old marketplace source, re-adding it, and
+installing the plugin again. Claude Code can replace the source in place:
+
+```bash
+# Codex
+codex plugin marketplace remove preflight-scout
+codex plugin marketplace add fenutech/preflight-scout --ref plugin-stable
+codex plugin add preflight-scout@preflight-scout
+
+# Claude Code
+claude plugin marketplace add fenutech/preflight-scout@plugin-stable
+```
 
 ## Configure analysis
 
@@ -352,9 +410,10 @@ Publishing these names requires verified maintainer control of the npm
 `@preflight-scout` scope and all six package names. Scope ownership is a hard
 release gate; if it cannot be confirmed, rename the scope in the reviewed source
 before publishing registry installation instructions.
-Actual publication is restricted to a reviewed public tag and the manual,
-environment-protected `.github/workflows/publish.yml` workflow; do not publish
-these provenance-enabled packages from a workstation.
+Actual publication is restricted to a reviewed protected public tag and the
+environment-protected `.github/workflows/publish.yml` workflow. Pushing the tag
+starts validation; a maintainer then approves the `npm-production` deployment.
+Do not publish these provenance-enabled packages from a workstation.
 
 - `@preflight-scout/core`: repo indexing, impact mapping, mission planning, reports, and providers
 - `@preflight-scout/cli`: `preflight-scout` command

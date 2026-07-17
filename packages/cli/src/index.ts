@@ -32,13 +32,14 @@ import { renderDoctorReport, runDoctor } from "./doctor.js";
 import { assertCanWriteConfig, createProgressReporter, loadEnvFile, parseTargetEnv, renderInitSummary, resolveAnalysisOutputDir, resolveBaseRef, resolveContractOutputDir, resolveRepoPath, resolveStorageOptions } from "./local.js";
 import { runAutomationCandidates, safeArtifactSegment, selectAutomationCandidates } from "./missions.js";
 import { openReport, renderArtifactSummary } from "./summary.js";
+import { checkForUpdates, renderUpdateCheck } from "./update.js";
 
 const program = new Command();
 
 program
   .name("preflight-scout")
   .description("Release QA for pull requests")
-  .version("0.1.0");
+  .version("0.1.1");
 
 program
   .command("install-browser")
@@ -47,6 +48,22 @@ program
   .action(async (options) => {
     await installChromium({ withDeps: options.withDeps });
     console.log("Playwright Chromium is installed for Preflight Scout.");
+  });
+
+program
+  .command("update-check")
+  .description("Check CLI and Agent Skill versions without changing installed software")
+  .option("--skill-version <version>", "exact installed Agent Skill version to verify")
+  .option("--json", "print machine-readable JSON", false)
+  .action(async (options) => {
+    const cliVersion = program.version();
+    if (!cliVersion) throw new Error("Preflight Scout CLI version metadata is missing.");
+    const result = await checkForUpdates({
+      cliVersion,
+      skillVersion: options.skillVersion
+    });
+    console.log(options.json ? JSON.stringify(result, null, 2) : renderUpdateCheck(result));
+    if (!result.compatible) process.exitCode = 1;
   });
 
 program

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -84,6 +85,45 @@ class SkillToolingTests(unittest.TestCase):
             result = self.run_validator(skill)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("does not exist", result.stderr)
+
+    def test_cli_compatibility_version_must_match_the_install_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            skill = self.copy_skill(Path(temp_dir))
+            reference = skill / "references" / "cli-installation.md"
+            text = re.sub(
+                r"preflight-scout update-check --skill-version \d+\.\d+\.\d+",
+                "preflight-scout update-check --skill-version 9.9.9",
+                reference.read_text(encoding="utf-8"),
+            )
+            reference.write_text(text, encoding="utf-8")
+            result = self.run_validator(skill)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("same CLI compatibility version", result.stderr)
+
+    def test_cli_compatibility_prerelease_identifiers_must_match(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            skill = self.copy_skill(Path(temp_dir))
+            skill_md = skill / "SKILL.md"
+            reference = skill / "references" / "cli-installation.md"
+            skill_md.write_text(
+                re.sub(
+                    r"preflight-scout update-check --skill-version \d+\.\d+\.\d+",
+                    "preflight-scout update-check --skill-version 0.2.0-beta.1",
+                    skill_md.read_text(encoding="utf-8"),
+                ),
+                encoding="utf-8",
+            )
+            reference.write_text(
+                re.sub(
+                    r"preflight-scout update-check --skill-version \d+\.\d+\.\d+",
+                    "preflight-scout update-check --skill-version 0.2.0-beta.2",
+                    reference.read_text(encoding="utf-8"),
+                ),
+                encoding="utf-8",
+            )
+            result = self.run_validator(skill)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("same CLI compatibility version", result.stderr)
 
     def test_skill_forbids_printing_binary_evidence(self) -> None:
         skill_text = (CANONICAL_SKILL / "SKILL.md").read_text(encoding="utf-8")

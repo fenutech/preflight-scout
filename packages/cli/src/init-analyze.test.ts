@@ -88,7 +88,7 @@ describe("init followed by analyze", () => {
 });
 
 async function runCli(args: string[], env: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string }> {
-  return execFileAsync("pnpm", ["exec", "tsx", cliPath, ...args], {
+  return execFileAsync(process.execPath, ["--import", "tsx", cliPath, ...args], {
     cwd: repoRoot,
     env: { ...process.env, ...env },
     timeout: 25_000,

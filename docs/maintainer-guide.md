@@ -30,6 +30,13 @@ source for new branches, fixes, or releases.
   workflow that needs them.
 - Pin every external Action to a full commit SHA; Dependabot maintains those
   references.
+- Keep repository release immutability enabled. Future published releases lock
+  their tag and assets and receive a GitHub release attestation.
+- Keep the exact `plugin-stable` ruleset active with no bypass actors. It blocks
+  deletion and non-fast-forward updates, requires linear history, and requires
+  the GitHub Actions `Required` check. It is a release channel, not a
+  development branch: only `publish.yml` may fast-forward it after npm and
+  GitHub release verification.
 
 The active default-branch rules:
 
@@ -61,11 +68,31 @@ review signal.
 - `Release Candidate`: a manual, non-publishing validation workflow that checks
   versions, runs the full suite, produces checksummed candidate artifacts, and
   exercises npm's dry-run path.
+- `Prepare release branch`: a maintainer supplies the next stable SemVer.
+  The workflow updates every lockstep version surface, promotes the changelog,
+  creates `codex/release-vX.Y.Z`, dispatches `CI` for its commit, and returns a
+  compare link for the maintainer to open the ready pull request. It cannot
+  create or approve a pull request, merge, tag, publish, or create a release.
+- `Publish npm packages`: a protected stable `vX.Y.Z` tag starts validation
+  automatically.
+  Before the protected environment can be approved, it rejects a tag that is
+  behind `plugin-stable`, npm `latest`, or the latest GitHub release, and it
+  requires the exact successful `Required` check on the tagged commit. Its
+  environment-gated job publishes all six packages through package-specific npm
+  trusted publishers, verifies the public `latest` tag and clean installs on
+  Linux and Windows, creates and verifies the matching immutable latest GitHub
+  release, then fast-forwards `plugin-stable` to that exact commit.
 
-Actual npm publication, tags, GitHub releases, and external marketplace
-submissions require a separate explicit maintainer decision. The
-release-candidate workflow cannot publish. Publish only from a reviewed public
-tag through the protected workflow described in the
+The repository's immutable-release setting uses an administration-read API that
+the normal GitHub Actions token cannot access. Do not add a PAT to work around
+that boundary. The environment reviewer confirms the setting before approving
+publication, and the release job verifies the actual release's `immutable`
+field before advancing `plugin-stable`.
+
+The version choice, release-PR merge, protected tag, production-environment
+approval, and any external marketplace submission remain explicit maintainer
+decisions. The preparation and release-candidate workflows cannot publish.
+Publish only from a reviewed public tag through the protected workflow in the
 [release checklist](release-checklist.md).
 
 ## Labels

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const out = path.join(root, "out");
+const sitePackage = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
 const ogAlt = "Preflight Scout showing a failed browser check with its evidence";
 const pages = [
   {
@@ -68,10 +69,12 @@ for (const page of pages) {
     assertContains(html, '"name":"Preflight Scout"', "home site name");
     assertContains(html, '"alternateName":"preflightscout.com"', "home alternate site name");
     assertContains(html, '"url":"https://preflightscout.com/"', "home structured-data URL");
-    assertContains(html, "codex plugin marketplace add fenutech/preflight-scout", "home Codex installation");
-    assertContains(html, "claude plugin marketplace add fenutech/preflight-scout", "home Claude Code installation");
+    assertContains(html, "codex plugin marketplace add fenutech/preflight-scout --ref plugin-stable", "home Codex stable-channel installation");
+    assertContains(html, "claude plugin marketplace add fenutech/preflight-scout@plugin-stable", "home Claude Code stable-channel installation");
     assertContains(html, "preflight-scout install-browser", "home Chromium installation");
     assertContains(html, "1280×720", "home sample-report viewport");
+    assertContains(html, `https://github.com/fenutech/preflight-scout/releases/tag/v${sitePackage.version}`, "home exact GitHub release gate");
+    assertContains(html, `https://www.npmjs.com/package/@preflight-scout/cli/v/${sitePackage.version}`, "home exact npm release gate");
   }
 
   await verifyInternalLinks(html, page.relative);
@@ -83,6 +86,15 @@ for (const page of pages) {
     assertContains(html, "--agent claude", "install Claude Code runtime probe");
     assertContains(html, "$env:PREFLIGHT_SCOUT_LLM_PROVIDER", "install PowerShell provider setup");
     assertContains(html, "restart the client and start a new task or session", "install plugin discovery restart");
+    assertContains(html, `preflight-scout update-check --skill-version ${sitePackage.version}`, "install release compatibility check");
+    assertContains(html, `@preflight-scout/cli@${sitePackage.version}`, "install exact current CLI version");
+    assertContains(html, "codex plugin marketplace add fenutech/preflight-scout --ref plugin-stable", "install Codex stable channel");
+    assertContains(html, "claude plugin marketplace add fenutech/preflight-scout@plugin-stable", "install Claude Code stable channel");
+    assertContains(html, "codex plugin marketplace upgrade preflight-scout", "install Codex update command");
+    assertContains(html, "claude plugin update preflight-scout@preflight-scout", "install Claude Code update command");
+    assertContains(html, `https://github.com/fenutech/preflight-scout/releases/tag/v${sitePackage.version}`, "install exact GitHub release gate");
+    assertContains(html, "0.1.0", "install first-update bootstrap guidance");
+    assertContains(html, "do not mix unreleased source with", "install source and stable-channel pairing guidance");
   }
   if (page.relative === "example-report/index.html") {
     assertContains(html, 'href="/example-report/report.html" target="_blank" rel="noopener noreferrer"', "sample report new-tab link");

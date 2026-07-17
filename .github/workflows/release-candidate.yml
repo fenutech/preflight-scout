@@ -6,7 +6,7 @@ on:
       version:
         description: Exact package version to validate, without a leading v.
         required: true
-        default: "0.1.0"
+        default: "0.1.1"
         type: string
 
 concurrency:
@@ -56,6 +56,9 @@ jobs:
         with:
           node-version: "22.13.0"
       - run: pnpm install --frozen-lockfile
+      - run: pnpm test:prepare-release
+      - run: pnpm test:release-version
+      - run: pnpm test:release-order
       - name: Verify release version
         env:
           RELEASE_VERSION: ${{ inputs.version }}

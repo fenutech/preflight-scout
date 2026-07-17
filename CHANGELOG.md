@@ -6,12 +6,31 @@ All notable changes to Preflight Scout are documented here. This project follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-17
+
+### Added
+
+- Added a read-only `update-check` command that compares the installed CLI,
+  Agent Skill, and npm's official release without changing the machine or
+  sending repository data.
+- Added one protected-tag release path that validates and publishes through
+  GitHub OIDC, verifies all six npm `latest` tags and clean Linux/Windows
+  installs, creates the matching latest GitHub release, then advances a
+  protected `plugin-stable` channel for Codex and Claude Code.
+- Added a deterministic release-preparation workflow that creates a tested
+  lockstep version branch and ready-PR link without merging, tagging, or
+  publishing.
+- Enabled immutable GitHub releases for future tags and added the setting to
+  the live publication gate.
+
 ### Changed
 
 - Removed the one-time `0.1.0` npm recovery workflow after all packages and
   public installation checks passed.
 - Made the live publication gate wait for all six package versions before the
   clean CLI installation check.
+- Made the public GitHub repository the only active source for code, packages,
+  releases, documentation, and the website.
 
 ### Fixed
 

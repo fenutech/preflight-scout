@@ -2,19 +2,22 @@
 
 This checklist prepares and validates a release from the canonical public
 repository, [`fenutech/preflight-scout`](https://github.com/fenutech/preflight-scout).
-Completing it does not authorize a tag, package publication, GitHub release, or
-marketplace submission.
+Completing it does not authorize a merge, tag, package publication, GitHub
+release, or marketplace submission.
 
 ## Candidate
 
-- [ ] Choose the exact version and a commit contained in public `main`; confirm
-      the tree is clean and synchronized with `fenutech/preflight-scout`.
+- [ ] Choose the next stable `X.Y.Z` version. Run `Prepare release branch` from
+      `main` with that exact version, then use its compare link to open the ready
+      pull request. Do not hand-edit a partial bump.
 - [ ] Confirm the release commit arrived through a pull request with green
       required checks, resolved review threads, and a clear positive signal
       from the automated or assigned reviewer. An approval, thumbs-up, or
       explicit no-blocker comment counts; silence does not.
-- [ ] Align package versions, CLI output, Action metadata, skill metadata, and
-      the matching `CHANGELOG.md` section.
+- [ ] Review the prepared diff and confirm it aligns all six package versions,
+      CLI/MCP output, Codex and Claude plugin metadata, the skill's exact CLI
+      compatibility check, website and documentation pins, and the promoted
+      `CHANGELOG.md` section.
 - [ ] Confirm supported Node.js, pnpm, Codex, and Claude Code versions.
 - [ ] Confirm the maintainer still controls the npm `@preflight-scout` scope,
       all published package names, and each package's trusted-publisher
@@ -55,7 +58,9 @@ marketplace submission.
 - [ ] Confirm the required Windows source-wrapper jobs in CI and the manual
       Release Candidate workflow execute the generated `.cmd` wrapper
       successfully.
-- [ ] Install the repository plugin in current Codex and Claude Code clients.
+- [ ] Install the repository plugin from `plugin-stable` in current Codex and
+      Claude Code clients. Confirm the branch still points to the previously
+      published release while the new candidate is under review.
 - [ ] In a clean profile without a direct skill copy, invoke
       `$preflight-scout:preflight-scout` in Codex and
       `/preflight-scout:preflight-scout` in Claude Code. Do not use
@@ -99,7 +104,7 @@ Run from a clean checkout:
 ```bash
 corepack enable
 pnpm install --frozen-lockfile
-VERSION="0.1.0" # replace with the exact <version> being validated
+VERSION="0.1.1" # replace with the exact <version> being validated
 pnpm check:release-version -- "$VERSION"
 pnpm build
 pnpm check:site
@@ -176,8 +181,17 @@ Stop here unless the maintainer explicitly authorizes each external action.
 - [ ] Use a reviewed commit already in the public repository's normal history.
 - [ ] Confirm the active `npm-production` environment still requires its
       reviewer and restricts deployment tags to the exact `v*` pattern.
+- [ ] Confirm repository release immutability is enabled. It applies to future
+      releases only; do not treat the older mutable `v0.1.0` release as a
+      template for new releases.
 - [ ] Confirm the active repository tag ruleset still protects `v*`, then
-      create `v<version>` at a commit contained in `main`.
+      create the exact stable tag `vX.Y.Z` at a commit contained in `main`.
+      Prerelease or build-metadata tags are not supported. Pushing that tag is
+      the only publication trigger.
+- [ ] Confirm the exact `plugin-stable` ruleset has no bypass actors, blocks
+      deletion and non-fast-forward updates, requires linear history and the
+      GitHub Actions `Required` check, and still points to the prior published
+      release.
 - [ ] Verify each package-specific npm trusted publisher names
       `fenutech/preflight-scout`, workflow `publish.yml`, and environment
       `npm-production`. Confirm each relationship with
@@ -186,15 +200,23 @@ Stop here unless the maintainer explicitly authorizes each external action.
       authentication and disallows tokens. The `npm-production` environment
       must not contain `NPM_TOKEN`, and the publish job must not set
       `NODE_AUTH_TOKEN`.
-- [ ] Dispatch `.github/workflows/publish.yml` on the protected tag and review
-      the exact typed confirmation. The workflow publishes only through
-      package-specific trusted publishers and GitHub OIDC; do not publish
-      locally.
-- [ ] Verify all six exact package versions with `npm view`, install the exact
-      CLI version from an external clean environment, install Chromium, and run
-      the fresh-shell and fresh-agent checks again.
-- [ ] Create the GitHub release or submit marketplace entries only when those
-      separate external actions were explicitly approved.
+- [ ] Let the tag-triggered `.github/workflows/publish.yml` validation finish,
+      then approve its protected `npm-production` deployment. The workflow
+      publishes only through package-specific trusted publishers and GitHub
+      OIDC; do not publish locally.
+- [ ] Confirm pre-publication validation accepted the exact successful
+      `Required` check and rejected any version older than `plugin-stable`, an
+      npm `latest` tag, or the latest GitHub release.
+- [ ] Confirm the workflow verifies all six exact versions and each package's
+      public `latest` tag, installs the exact CLI on Linux and Windows, and only
+      then creates the matching latest GitHub release from the protected tag.
+- [ ] Confirm the final release step fast-forwards `plugin-stable` to the exact
+      tagged commit only after the GitHub API reports that release as immutable.
+      It must never force-update or move backward.
+- [ ] From an external clean environment, install that exact CLI version,
+      install Chromium, and run the fresh-shell and fresh-agent checks again.
+- [ ] Submit external marketplace entries only when that separate action was
+      explicitly approved.
 - [ ] Verify every public install path from a clean external account.
 - [ ] Monitor install failures and security reports; issue a new corrected
       version rather than rewriting a published tag.
