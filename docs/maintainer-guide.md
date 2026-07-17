@@ -1,10 +1,26 @@
 # Maintainer guide
 
+## Source of truth
+
+[`fenutech/preflight-scout`](https://github.com/fenutech/preflight-scout) is the
+only active source repository for Preflight Scout. Start every code change,
+documentation change, release, and package build from this repository and send
+it through a public pull request.
+
+`fenutech/preflight-scout-internal` is for private operational notes. It must
+never mirror source code, patches, release artifacts, or package contents.
+The former private staging repository is a read-only historical archive, not a
+source for new branches, fixes, or releases.
+
 ## Repository policy
 
 - `main` is the only default branch.
 - Changes should arrive through focused branches and squash-merged pull
   requests.
+- Do not merge a pull request until required checks are green, review threads
+  are resolved, and the automated or assigned reviewer gives a clear positive
+  signal. A GitHub approval, a thumbs-up, or an explicit no-blocker comment
+  counts. Silence or an absent review does not.
 - `Required` is the stable required-check candidate produced by the `CI`
   workflow. Matrix jobs, label automation, and opt-in self-checks should not
   be configured as required individually.
@@ -15,21 +31,21 @@
 - Pin every external Action to a full commit SHA; Dependabot maintains those
   references.
 
-When the repository plan supports branch rules, protect the default branch
-with these rules:
+The active default-branch rules:
 
 1. block branch deletion and non-fast-forward pushes;
 2. require a pull request with squash as the only merge method;
-3. require review-thread resolution, with zero mandatory approvals while the
-   project has one maintainer;
+3. require review-thread resolution; a native approval count may remain zero
+   when the automated reviewer cannot submit formal approvals, but the positive
+   reviewer-signal rule above still applies;
 4. require a current branch and the `Required` status check;
 5. require linear history; and
 6. allow the repository owner to bypass only through a pull request, so an
    emergency override remains visible.
 
-Do not enable a ruleset merely for appearance. Confirm the current account plan
-can enforce it, and confirm the required check has completed successfully on
-`main`, before turning enforcement on.
+Keep the rules active and verify them after repository ownership, plan, or
+workflow changes. Do not weaken them to work around a failing check or missing
+review signal.
 
 ## Automation map
 

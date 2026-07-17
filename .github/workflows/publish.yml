@@ -7,14 +7,6 @@ on:
         description: Exact SemVer to publish, without a leading v.
         required: true
         type: string
-      authentication:
-        description: Use bootstrap-token only for the first publication, then configure all six trusted publishers and use trusted-publishing.
-        required: true
-        default: trusted-publishing
-        type: choice
-        options:
-          - trusted-publishing
-          - bootstrap-token
       confirmation:
         description: Type PUBLISH @preflight-scout VERSION <version> FROM v<version>
         required: true
@@ -46,7 +38,6 @@ jobs:
 
       - name: Reject the wrong repository, visibility, ref, or confirmation
         env:
-          AUTHENTICATION: ${{ inputs.authentication }}
           CONFIRMATION: ${{ inputs.confirmation }}
           EXPECTED_REPOSITORY: fenutech/preflight-scout
           REPOSITORY: ${{ github.repository }}
@@ -60,7 +51,6 @@ jobs:
           [[ "$GITHUB_REF" == "refs/tags/v${VERSION}" ]]
           [[ "$GITHUB_REF_NAME" == "v${VERSION}" ]]
           [[ "$CONFIRMATION" == "PUBLISH @preflight-scout VERSION ${VERSION} FROM v${VERSION}" ]]
-          [[ "$AUTHENTICATION" == "bootstrap-token" || "$AUTHENTICATION" == "trusted-publishing" ]]
 
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -99,7 +89,7 @@ jobs:
       - run: pnpm test:package-guard
       - run: pnpm test:source-cli-wrapper
       - run: pnpm test:external-tools
-      - run: pnpm test:public-export
+      - run: pnpm test:repo-boundary
       - run: pnpm test:publication
       - run: pnpm pack:check
       - run: pnpm test:npm-global-smoke
@@ -184,20 +174,7 @@ jobs:
             --version "$VERSION" \
             --commit "$GITHUB_SHA"
 
-      - name: Publish first versions with the protected bootstrap token
-        if: inputs.authentication == 'bootstrap-token'
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          VERSION: ${{ inputs.version }}
-        run: |
-          node publication-candidate/publication-artifact.mjs publish \
-            --directory publication-candidate \
-            --version "$VERSION" \
-            --commit "$GITHUB_SHA" \
-            --mode bootstrap-token
-
       - name: Publish with package-specific npm trusted publishers
-        if: inputs.authentication == 'trusted-publishing'
         env:
           VERSION: ${{ inputs.version }}
         run: |

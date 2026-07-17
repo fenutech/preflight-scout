@@ -6,9 +6,9 @@ providers. Security reports are welcome and should be handled privately.
 
 ## Supported versions
 
-Preflight Scout is pre-1.0. Before the first published release, fixes target the latest
-maintained commit. After publication, security fixes target the newest minor
-release line; older pre-1.0 lines may not receive backports.
+Preflight Scout is pre-1.0. Version `0.1.0` is published, and security fixes
+target the newest `0.1.x` release plus the current `main` branch. Older pre-1.0
+lines may not receive backports.
 
 ## Report a vulnerability
 

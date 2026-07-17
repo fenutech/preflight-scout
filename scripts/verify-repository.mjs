@@ -73,18 +73,16 @@ const requiredFiles = [
   "SUPPORT.md",
   "THIRD_PARTY_NOTICES.md",
   "docs/maintainer-guide.md",
-  "scripts/export-public-snapshot.sh",
   "scripts/install-source-cli.mjs",
   "scripts/npm-global-install-smoke-lib.mjs",
   "scripts/npm-global-install-smoke.mjs",
   "scripts/package-build-integrity.mjs",
   "scripts/package-build-paths.mjs",
-  "scripts/public-snapshot-files.txt",
   "scripts/publication-artifact.mjs",
   "scripts/resolve-external-tool.mjs",
   "scripts/run-test-suite.mjs",
   "scripts/source-cli-wrapper.mjs",
-  "scripts/test-export-public-snapshot.mjs",
+  "scripts/test-repository-boundary.mjs",
   "scripts/test-npm-global-install-smoke.mjs",
   "scripts/test-package-build-integrity.mjs",
   "scripts/test-publication-artifact.mjs",
@@ -92,7 +90,7 @@ const requiredFiles = [
   "scripts/test-source-cli-wrapper.mjs",
   "scripts/verify-packed-packages.mjs",
   "scripts/verify-cloudflare-pages.mjs",
-  "scripts/verify-public-snapshot-boundary.mjs",
+  "scripts/verify-repository-boundary.mjs",
   "scripts/verify-publication-gates.mjs",
   "skills/preflight-scout/SKILL.md",
   "skills/preflight-scout/references/cli-installation.md",
@@ -136,6 +134,20 @@ for (const privateOnlyPath of [
   }
 }
 
+for (const retiredStagingPath of [
+  "apps/site/AGENTS.md",
+  "design-qa.md",
+  "docs/publication.md",
+  "scripts/public-snapshot-staging-only-files.txt"
+]) {
+  try {
+    await access(path.join(root, retiredStagingPath));
+    failures.push(`Retired private-staging path must not exist in the canonical repository: ${retiredStagingPath}`);
+  } catch {
+    // Expected: historical staging material remains only in the archived private repository.
+  }
+}
+
 const rootManifest = await readJson("package.json");
 if (rootManifest.name !== "preflight-scout") failures.push("The workspace root name must be preflight-scout.");
 if (rootManifest.private !== true) failures.push("The workspace root must remain private.");
@@ -154,6 +166,15 @@ if (rootManifest.scripts?.["test:ci"] !== "node scripts/run-test-suite.mjs unit"
 }
 if (rootManifest.scripts?.["test:browser"] !== "node scripts/run-test-suite.mjs browser") {
   failures.push("test:browser must run the explicitly classified browser suite.");
+}
+if (rootManifest.scripts?.["test:repo-boundary"] !== "node scripts/test-repository-boundary.mjs") {
+  failures.push("test:repo-boundary must exercise the canonical tracked-repository boundary.");
+}
+if (rootManifest.scripts?.["check:repo"] !== "node scripts/verify-repository-boundary.mjs && node scripts/verify-repository.mjs") {
+  failures.push("check:repo must verify the tracked-repository boundary before repository policy.");
+}
+if (rootManifest.scripts?.["export:public"] !== undefined || rootManifest.scripts?.["test:public-export"] !== undefined) {
+  failures.push("The canonical public repository must not retain private-to-public snapshot scripts.");
 }
 if (rootManifest.scripts?.["smoke:npm-global"] !== "node scripts/npm-global-install-smoke.mjs") {
   failures.push("smoke:npm-global must exercise the isolated npm global CLI installation.");
@@ -203,8 +224,7 @@ const requiredPublishWorkflowMarkers = [
   "node scripts/verify-publication-gates.mjs",
   "environment:\n      name: npm-production",
   "id-token: write",
-  "NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}",
-  "--mode bootstrap-token",
+  "Publish with package-specific npm trusted publishers",
   "--mode trusted-publishing",
   "verify-live-install:",
   "packages=(core agent-exec browser-runner mcp github-action cli)",
@@ -215,6 +235,11 @@ const requiredPublishWorkflowMarkers = [
 ];
 for (const marker of requiredPublishWorkflowMarkers) {
   if (!publishWorkflow.includes(marker)) failures.push(`publish.yml is missing safety gate: ${marker}`);
+}
+for (const forbiddenAuthenticationPath of ["secrets.NPM_TOKEN", "NODE_AUTH_TOKEN", "bootstrap-token", "inputs.authentication", "authentication:"]) {
+  if (publishWorkflow.includes(forbiddenAuthenticationPath)) {
+    failures.push(`publish.yml must use trusted publishing only and must not contain ${forbiddenAuthenticationPath}.`);
+  }
 }
 const publishTriggerBlock = publishWorkflow.slice(publishWorkflow.indexOf("on:"), publishWorkflow.indexOf("concurrency:"));
 for (const forbiddenTrigger of ["push:", "pull_request:", "release:", "schedule:", "workflow_call:"]) {
@@ -246,9 +271,15 @@ for (const forbiddenLiveInstallCapability of ["id-token: write", "secrets.NPM_TO
     failures.push(`publish.yml live-install verification must not receive or run ${forbiddenLiveInstallCapability}.`);
   }
 }
-const trustedStep = publishJob.slice(publishJob.indexOf("Publish with package-specific npm trusted publishers"));
-if (trustedStep.includes("NODE_AUTH_TOKEN") || trustedStep.includes("secrets.NPM_TOKEN")) {
+const trustedStepIndex = publishJob.indexOf("Publish with package-specific npm trusted publishers");
+const trustedStep = trustedStepIndex >= 0 ? publishJob.slice(trustedStepIndex) : "";
+if (trustedStepIndex < 0) {
+  failures.push("publish.yml must contain one package-specific trusted-publishing step.");
+} else if (trustedStep.includes("NODE_AUTH_TOKEN") || trustedStep.includes("secrets.NPM_TOKEN")) {
   failures.push("publish.yml trusted-publishing step must not receive an npm token.");
+}
+if ((publishWorkflow.match(/--mode trusted-publishing/g) ?? []).length !== 1 || trustedStep.includes("\n        if:")) {
+  failures.push("publish.yml must run exactly one unconditional trusted-publishing step.");
 }
 for (const forbiddenPermission of ["contents: write", "actions: write", "packages: write"]) {
   if (publishWorkflow.includes(forbiddenPermission)) failures.push(`publish.yml must not grant ${forbiddenPermission}.`);
@@ -355,10 +386,38 @@ for (const entry of packageEntries.filter((item) => item.isDirectory())) {
   }
 }
 
-const publicManifestPaths = (await readFile(path.join(root, "scripts", "public-snapshot-files.txt"), "utf8"))
-  .split(/\r?\n/)
-  .map((line) => line.trim())
-  .filter(Boolean);
+let hasGitMetadata = false;
+let trustedGitCommand;
+let trackedRepositoryPaths = [];
+try {
+  hasGitMetadata = await hasGitMetadataInAncestors(root);
+  if (!hasGitMetadata) {
+    failures.push("Repository verification requires the canonical Git checkout; no Git metadata was found.");
+  } else {
+    trustedGitCommand = await resolveExternalTool("git", { repoRoot: root });
+    const { stdout } = await execFileAsync(trustedGitCommand, [
+      "-c",
+      "core.fsmonitor=false",
+      "ls-files",
+      "-z"
+    ], {
+      cwd: root,
+      encoding: "utf8",
+      env: trustedGitEnvironment(trustedGitCommand),
+      maxBuffer: 64 * 1024 * 1024,
+      shell: false,
+      windowsHide: true
+    });
+    trackedRepositoryPaths = stdout.split("\0").filter(Boolean);
+    if (trackedRepositoryPaths.length === 0) failures.push("Canonical repository has no tracked files.");
+    if (new Set(trackedRepositoryPaths).size !== trackedRepositoryPaths.length) {
+      failures.push("Canonical repository contains duplicate tracked paths.");
+    }
+  }
+} catch (error) {
+  failures.push(`Could not enumerate canonical tracked files with trusted Git: ${error instanceof Error ? error.message : String(error)}`);
+}
+
 const forbiddenPublicIdentityFragments = [
   ["Preflight", "QA"].join(" "),
   `@${retiredProductSlug}`,
@@ -368,16 +427,21 @@ const forbiddenPublicIdentityFragments = [
 const legacyPathSecurityFiles = new Set([
   "packages/core/src/fs.ts",
   "packages/core/src/fs.test.ts",
-  "packages/core/src/redaction.test.ts",
-  "scripts/test-export-public-snapshot.mjs"
+  "packages/core/src/redaction.test.ts"
 ]);
 const legacyEnvSecurityFiles = new Set([
   "packages/core/src/redaction.ts",
   "packages/core/src/redaction.test.ts"
 ]);
-for (const relativePath of publicManifestPaths) {
+for (const relativePath of trackedRepositoryPaths) {
   if (relativePath === "scripts/verify-repository.mjs") continue;
-  const buffer = await readFile(path.join(root, relativePath));
+  let buffer;
+  try {
+    buffer = await readFile(path.join(root, relativePath));
+  } catch (error) {
+    failures.push(`Could not read tracked repository file ${relativePath}: ${error instanceof Error ? error.message : String(error)}`);
+    continue;
+  }
   if (buffer.includes(0)) continue;
   const contents = buffer.toString("utf8");
   for (const fragment of forbiddenPublicIdentityFragments) {
@@ -391,16 +455,9 @@ for (const relativePath of publicManifestPaths) {
   }
 }
 
-let hasGitMetadata = false;
-try {
-  hasGitMetadata = await hasGitMetadataInAncestors(root);
-} catch (error) {
-  failures.push(`Could not inspect Git metadata for package asset tracking: ${error instanceof Error ? error.message : String(error)}`);
-}
-
 if (hasGitMetadata) {
   try {
-    const gitCommand = await resolveExternalTool("git", { repoRoot: root });
+    const gitCommand = trustedGitCommand ?? await resolveExternalTool("git", { repoRoot: root });
     const { stdout } = await execFileAsync(gitCommand, [
       "-c",
       "core.fsmonitor=false",
