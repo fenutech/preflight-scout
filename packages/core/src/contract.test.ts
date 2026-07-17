@@ -173,6 +173,52 @@ describe("writeInitialContract", () => {
     expect(gitignore).toContain("!.env.preflight-scout.example");
   });
 
+  it.each([
+    { targetEnv: "local" as const, url: "http://127.0.0.1:3000", field: "localUrl" as const },
+    { targetEnv: "staging" as const, url: "https://staging.example.com", field: "stagingUrl" as const }
+  ])("maps a generic init URL to the explicit $targetEnv environment", async ({ targetEnv, url, field }) => {
+    const repoIndex = await indexRepository(dir);
+    const written = await writeInitialContract(dir, repoIndex, undefined, {
+      appUrl: url,
+      targetEnv
+    });
+
+    expect(written.defaults?.targetEnv).toBe(targetEnv);
+    expect(written.app[field]).toBe(url);
+    expect(written.app.url).toBeUndefined();
+    expect(resolveTargetUrl(written, { env: targetEnv })).toBe(url);
+  });
+
+  it.each([
+    { targetEnv: "local" as const, url: "http://127.0.0.1:3000", field: "localUrl" as const },
+    { targetEnv: "staging" as const, url: "https://frontend-staging.example.com", field: "stagingUrl" as const }
+  ])("maps a generic init URL to the explicit $targetEnv environment for a named target", async ({ targetEnv, url, field }) => {
+    const repoIndex = await indexRepository(dir);
+    const written = await writeInitialContract(dir, repoIndex, undefined, {
+      appUrl: url,
+      target: "frontend",
+      targetEnv
+    });
+
+    expect(written.app.targets?.frontend?.[field]).toBe(url);
+    expect(written.app.targets?.frontend?.url).toBeUndefined();
+    expect(resolveTargetUrl(written, { target: "frontend", env: targetEnv })).toBe(url);
+  });
+
+  it("preserves a generic init URL when an explicit environment URL is also supplied", async () => {
+    const repoIndex = await indexRepository(dir);
+    const written = await writeInitialContract(dir, repoIndex, undefined, {
+      appUrl: "https://preview.example.com",
+      localUrl: "http://127.0.0.1:3000",
+      targetEnv: "local"
+    });
+
+    expect(written.app.url).toBe("https://preview.example.com");
+    expect(written.app.localUrl).toBe("http://127.0.0.1:3000");
+    expect(resolveTargetUrl(written, { env: "local" })).toBe("http://127.0.0.1:3000");
+    expect(resolveTargetUrl(written, { env: "auto" })).toBe("http://127.0.0.1:3000");
+  });
+
   it("adds missing Preflight Scout ignore entries without duplicating existing ones", async () => {
     await writeFile(path.join(dir, ".gitignore"), ".preflight-scout/auth/\n.env.preflight-scout.local\n");
     const repoIndex = await indexRepository(dir);

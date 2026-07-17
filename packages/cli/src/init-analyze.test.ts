@@ -59,6 +59,45 @@ describe("init followed by analyze", () => {
     await expect(readFile(agentLog, "utf8")).resolves.toBe("qa_contract\nimpact_map\nqa_mission\n");
   }, 30_000);
 
+  it("keeps an init --url staging default runnable for a named target", async () => {
+    const parent = await mkdtemp(path.join(tmpdir(), "preflight-scout-init-staging-"));
+    tempDirs.push(parent);
+    const demo = await createGenericDemoRepo({ output: path.join(parent, "repo") });
+    await execFileAsync("git", ["update-ref", "refs/remotes/origin/main", "HEAD~1"], { cwd: demo.root });
+    const agentLog = path.join(parent, "agent-calls.log");
+    const agentScript = path.join(parent, "deterministic-init-staging-agent.mjs");
+    await writeFile(agentScript, deterministicAgentSource(agentLog), { encoding: "utf8", mode: 0o600 });
+    const env = deterministicAgentEnv(agentScript);
+
+    await runCli([
+      "init",
+      "--root", demo.root,
+      "--force",
+      "--no-llm",
+      "--target", "frontend",
+      "--url", "https://staging.example.com",
+      "--base", "origin/main",
+      "--target-env", "staging"
+    ], env);
+
+    const generated = await loadContract(demo.root);
+    expect(generated.app.targets?.frontend?.stagingUrl).toBe("https://staging.example.com");
+    expect(generated.app.targets?.frontend?.url).toBeUndefined();
+
+    await runCli([
+      "analyze",
+      "--root", demo.root,
+      "--base", "origin/main",
+      "--head", "HEAD",
+      "--target", "frontend",
+      "--env", "staging"
+    ], env);
+
+    const outputDir = path.join(demo.root, ".preflight-scout", "runs", "latest");
+    await expect(readFile(path.join(outputDir, "report.html"), "utf8")).resolves.toContain("Preflight Scout Report");
+    await expect(readFile(agentLog, "utf8")).resolves.toBe("impact_map\nqa_mission\n");
+  }, 30_000);
+
   it.each(["analyze", "run"] as const)("%s rejects a legacy boundary-level output directory before starting model calls", async (command) => {
     const parent = await mkdtemp(path.join(tmpdir(), "preflight-scout-output-fail-fast-"));
     tempDirs.push(parent);

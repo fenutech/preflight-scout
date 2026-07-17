@@ -179,20 +179,27 @@ function normalizeContract(input: Partial<QAContract>): QAContract {
 
 function applyInitialContractOptions(contract: QAContract, options: InitialContractOptions): QAContract {
   const next = normalizeContract(contract);
+  const appUrl = options.targetEnv === "local" && !options.localUrl
+    ? undefined
+    : options.targetEnv === "staging" && !options.stagingUrl
+      ? undefined
+      : options.appUrl;
+  const localUrl = options.localUrl ?? (options.targetEnv === "local" ? options.appUrl : undefined);
+  const stagingUrl = options.stagingUrl ?? (options.targetEnv === "staging" ? options.appUrl : undefined);
   if (options.target && options.target !== "default") {
     next.app = { ...next.app, targets: { ...next.app.targets } };
     next.app.targets![options.target] = {
       ...next.app.targets![options.target],
-      ...(options.appUrl ? { url: options.appUrl } : {}),
-      ...(options.localUrl ? { localUrl: options.localUrl } : {}),
-      ...(options.stagingUrl ? { stagingUrl: options.stagingUrl } : {})
+      ...(appUrl ? { url: appUrl } : {}),
+      ...(localUrl ? { localUrl } : {}),
+      ...(stagingUrl ? { stagingUrl } : {})
     };
   } else {
     next.app = {
       ...next.app,
-      ...(options.appUrl ? { url: options.appUrl } : {}),
-      ...(options.localUrl ? { localUrl: options.localUrl } : {}),
-      ...(options.stagingUrl ? { stagingUrl: options.stagingUrl } : {})
+      ...(appUrl ? { url: appUrl } : {}),
+      ...(localUrl ? { localUrl } : {}),
+      ...(stagingUrl ? { stagingUrl } : {})
     };
   }
   if (options.loginUrl || options.role || options.usernameEnv || options.passwordEnv || options.storageState || options.saveStorageState) {
