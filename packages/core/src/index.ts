@@ -8,6 +8,7 @@ export * from "./impact-mapper.js";
 export * from "./llm.js";
 export * from "./mission-planner.js";
 export * from "./pipeline.js";
+export * from "./process-tree.js";
 export * from "./promotion.js";
 export * from "./provenance.js";
 export * from "./repo-indexer.js";

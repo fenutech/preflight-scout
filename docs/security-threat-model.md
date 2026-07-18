@@ -91,6 +91,10 @@ Preflight Scout runs on developer workstations and in CI. It can handle source c
   output. Explicit `PREFLIGHT_SCOUT_EXEC_COMMAND`/`PREFLIGHT_SCOUT_EXEC_ARGS` overrides are
   trusted-command escape hatches.
 - Built-in delegated-agent commands apply provider sandbox and tool restrictions; mission prompts use stdin where supported. They receive a kind-specific minimal environment plus only the selected role's browser credentials. Their browser/MCP tooling is still outside Preflight Scout's built-in navigation boundary, and custom agents remain trusted executables.
+- Timeout and output-limit cleanup terminates the spawned process group on
+  POSIX. On Windows it invokes the OS-owned `System32\taskkill.exe` by absolute
+  path with descendant-tree termination, a bounded wait, and no captured
+  taskkill output.
 - The optional doctor agent probe runs from a fresh temporary directory outside
   the target repository, strips provider API keys and unrelated environment
   variables, applies built-in no-tool restrictions, bounds/redacts error state,

@@ -97,7 +97,10 @@ planning. Built-in agent kinds receive a kind-specific minimal environment and
 only the dedicated browser credentials for the mission's selected role; custom
 agents receive a minimal environment by default. Credential values are redacted
 from returned output, output is bounded, and timed-out process groups are
-terminated. The delegated agent, its custom command, and its browser/MCP setup
+terminated. On Windows, timeout and output-limit cleanup invokes the OS-owned
+`System32\taskkill.exe` by absolute path to terminate the descendant tree;
+taskkill output is discarded and cleanup waiting is bounded. The delegated
+agent, its custom command, and its browser/MCP setup
 remain trusted execution surfaces outside Preflight Scout's deterministic Playwright
 navigation boundary.
 
