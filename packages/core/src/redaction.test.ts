@@ -7,6 +7,9 @@ import {
 } from "./redaction.js";
 import type { PullRequestContext, RepoIndex } from "./types.js";
 
+const rsaPrivateKeyBoundary = (kind: "BEGIN" | "END"): string =>
+  ["-----", kind, " RSA PRIVATE KEY", "-----"].join("");
+
 describe("redactText", () => {
   it("redacts common secret-looking tokens", () => {
     const stripeShapedToken = ["sk", "test", "abcdefghijklmnopqrstuvwxyz"].join("_");
@@ -37,14 +40,14 @@ describe("redactText", () => {
   });
 
   it("redacts repeated unterminated PEM private-key blocks in one forward pass", () => {
-    const malformed = "-----BEGIN RSA PRIVATE KEY-----\nsensitive-body\n".repeat(20_000);
+    const malformed = `${rsaPrivateKeyBoundary("BEGIN")}\nsensitive-body\n`.repeat(20_000);
 
     expect(redactText(`before\n${malformed}`)).toBe("before\n[REDACTED_SECRET]");
   });
 
   it("does not let a mismatched PEM end boundary expose a truncated private key", () => {
     const pem = [
-      "-----BEGIN RSA PRIVATE KEY-----",
+      rsaPrivateKeyBoundary("BEGIN"),
       "sensitive-body",
       "-----END EC PRIVATE KEY-----",
       "trailing-sensitive-data"
@@ -55,9 +58,9 @@ describe("redactText", () => {
 
   it("parses PEM boundaries before replacing an overlapping supplied secret", () => {
     const pem = [
-      "-----BEGIN RSA PRIVATE KEY-----",
+      rsaPrivateKeyBoundary("BEGIN"),
       "sensitive-body",
-      "-----END RSA PRIVATE KEY-----"
+      rsaPrivateKeyBoundary("END")
     ].join("\n");
 
     expect(redactText(`before\n${pem}\nafter`, ["RSA PRIVATE KEY"]))
@@ -66,13 +69,13 @@ describe("redactText", () => {
 
   it("does not expose an outer tail after a nested PEM opening boundary", () => {
     const malformed = [
-      "-----BEGIN RSA PRIVATE KEY-----",
+      rsaPrivateKeyBoundary("BEGIN"),
       "outer-secret-a",
-      "-----BEGIN RSA PRIVATE KEY-----",
+      rsaPrivateKeyBoundary("BEGIN"),
       "inner-secret",
-      "-----END RSA PRIVATE KEY-----",
+      rsaPrivateKeyBoundary("END"),
       "outer-secret-b",
-      "-----END RSA PRIVATE KEY-----",
+      rsaPrivateKeyBoundary("END"),
       "trailing-sensitive-data"
     ].join("\n");
 
