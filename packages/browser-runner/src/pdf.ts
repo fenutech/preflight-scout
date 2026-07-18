@@ -1,16 +1,45 @@
+import { randomUUID } from "node:crypto";
 import { lstat, mkdir, realpath, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium } from "playwright";
 
-export async function printHtmlReportToPdf(input: { htmlPath: string; pdfPath: string }): Promise<string> {
-  const htmlPath = path.resolve(input.htmlPath);
-  const htmlStat = await lstat(htmlPath);
-  if (!htmlStat.isFile() || htmlStat.isSymbolicLink() || htmlStat.nlink !== 1) {
-    throw new Error("PDF source must be a uniquely linked regular HTML file, not a symlink or hard link.");
+export async function printHtmlReportToPdf(input: {
+  htmlPath?: string;
+  htmlContent?: string;
+  /**
+   * Validated local root used to resolve relative assets in verified
+   * htmlContent without rereading a mutable HTML file.
+   */
+  reportRoot?: string;
+  pdfPath: string;
+}): Promise<string> {
+  if ((input.htmlPath !== undefined) === (input.htmlContent !== undefined)) {
+    throw new Error("PDF rendering requires exactly one HTML source.");
   }
-  const canonicalHtmlPath = await realpath(htmlPath);
-  const reportRoot = await realpath(path.dirname(htmlPath));
+  if (input.htmlPath && input.reportRoot) {
+    throw new Error("PDF reportRoot is only valid with verified HTML content.");
+  }
+  let canonicalHtmlPath: string | undefined;
+  let reportRoot: string | undefined;
+  let contentBaseUrl: string | undefined;
+  if (input.htmlPath) {
+    const htmlPath = path.resolve(input.htmlPath);
+    const htmlStat = await lstat(htmlPath);
+    if (!htmlStat.isFile() || htmlStat.isSymbolicLink() || htmlStat.nlink !== 1) {
+      throw new Error("PDF source must be a uniquely linked regular HTML file, not a symlink or hard link.");
+    }
+    canonicalHtmlPath = await realpath(htmlPath);
+    reportRoot = await realpath(path.dirname(htmlPath));
+  } else if (input.reportRoot) {
+    const requestedReportRoot = path.resolve(input.reportRoot);
+    const reportRootStat = await lstat(requestedReportRoot);
+    if (!reportRootStat.isDirectory() || reportRootStat.isSymbolicLink()) {
+      throw new Error("PDF report root must be a regular directory, not a symlink.");
+    }
+    reportRoot = await realpath(requestedReportRoot);
+    contentBaseUrl = pathToFileURL(path.join(reportRoot, `.preflight-scout-pdf-${randomUUID()}.html`)).toString();
+  }
   const requestedPdfPath = path.resolve(input.pdfPath);
   const requestedPdfParent = path.dirname(requestedPdfPath);
   await mkdir(requestedPdfParent, { recursive: true });
@@ -32,13 +61,23 @@ export async function printHtmlReportToPdf(input: { htmlPath: string; pdfPath: s
   try {
     const page = await browser.newPage({ javaScriptEnabled: false, serviceWorkers: "block" });
     await page.route("**/*", async (route) => {
-      if (await isAllowedReportRequest(route.request().url(), reportRoot)) {
+      const requestUrl = route.request().url();
+      if (contentBaseUrl && requestUrl === contentBaseUrl) {
+        await route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><title>Preflight Scout PDF base</title>" });
+      } else if (reportRoot && await isAllowedReportRequest(requestUrl, reportRoot)) {
         await route.continue();
       } else {
         await route.abort("blockedbyclient");
       }
     });
-    await page.goto(pathToFileURL(canonicalHtmlPath).toString(), { waitUntil: "networkidle" });
+    if (input.htmlContent !== undefined) {
+      if (contentBaseUrl) {
+        await page.goto(contentBaseUrl, { waitUntil: "domcontentloaded" });
+      }
+      await page.setContent(input.htmlContent, { waitUntil: "networkidle" });
+    } else {
+      await page.goto(pathToFileURL(canonicalHtmlPath!).toString(), { waitUntil: "networkidle" });
+    }
     await page.pdf({
       path: pdfPath,
       format: "A4",

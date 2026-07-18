@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { lstat, mkdir, realpath, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from "playwright";
-import { BrowserDecisionSchema, browserCredentialEnvName, isActionApproved, loadApprovals, redactContract, redactText, writeTextEnsuringDir, type ApprovalState, type LLMClient, type MissionRunResult, type QAContract, type QAFlowMission, type RoleCredential, type StepResult } from "@preflight-scout/core";
+import { BrowserDecisionSchema, browserCredentialEnvName, isActionApproved, loadApprovals, redactContract, redactText, resolvePackageRuntimeIdentity, writeTextEnsuringDir, type ApprovalState, type LLMClient, type MissionRunResult, type QAContract, type QAFlowMission, type RoleCredential, type StepResult } from "@preflight-scout/core";
 import { bindReviewedAssertionDecision, executeDecision } from "./actions.js";
 import { BrowserNavigationBoundary } from "./navigation.js";
 import { observe, screenshot } from "./observe.js";
@@ -22,6 +22,11 @@ const MAX_JSON_EVIDENCE_BYTES = 2 * 1024 * 1024;
 const MAX_STORAGE_STATE_OUTPUT_BYTES = 16 * 1024 * 1024;
 const MAX_BROWSER_TURNS = 100;
 const MAX_STEP_RESULT_MESSAGE_CHARS = 2_000;
+
+export const PREFLIGHT_SCOUT_BROWSER_RUNNER_RUNTIME_DIGEST = resolvePackageRuntimeIdentity(
+  import.meta.url,
+  "@preflight-scout/browser-runner"
+);
 
 export async function checkBrowserAvailability(): Promise<void> {
   const browser = await chromium.launch({ headless: true });

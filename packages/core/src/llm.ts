@@ -4,6 +4,7 @@ import { access, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:f
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { z, type ZodType } from "zod";
+import * as processTree from "./process-tree.js";
 import { redactText } from "./redaction.js";
 
 export interface LLMImageAttachment {
@@ -985,6 +986,10 @@ function runCliCommand(options: {
     let stdout = "";
     let stderr = "";
     let terminationReason: "timeout" | "output-limit" | undefined;
+    let terminationDiagnostic: string | undefined;
+    let terminationProcessErrorCode: string | undefined;
+    let terminationExitCode: number | null | undefined;
+    let initialTerminationComplete = false;
     let forceKillTimer: NodeJS.Timeout | undefined;
     let finalKillTimer: NodeJS.Timeout | undefined;
     const childEnvSecrets = secretValuesFromEnv(options.env);
@@ -998,7 +1003,7 @@ function runCliCommand(options: {
         detached: process.platform !== "win32"
       }) as ChildProcessWithoutNullStreams;
     } catch (error) {
-      const errorCode = (error as NodeJS.ErrnoException).code ?? (error as Error).name ?? "unknown error";
+      const errorCode = safeSubprocessErrorCode(error);
       reject(new Error(redactText(`CLI LLM command ${safeLabel} failed to start (${errorCode})`, childEnvSecrets).slice(0, MAX_CLI_ERROR_CHARS)));
       return;
     }
@@ -1015,7 +1020,11 @@ function runCliCommand(options: {
       captureOutput("stderr", chunk.toString());
     });
     child.on("error", (error) => {
-      const errorCode = (error as NodeJS.ErrnoException).code ?? error.name ?? "unknown error";
+      const errorCode = safeSubprocessErrorCode(error);
+      if (terminationReason) {
+        terminationProcessErrorCode = errorCode;
+        return;
+      }
       settle(() => reject(cliCommandError(
         `CLI LLM command ${safeLabel} failed to start (${errorCode})`,
         stdout,
@@ -1027,7 +1036,8 @@ function runCliCommand(options: {
     child.on("close", (exitCode) => {
       if (settled) return;
       if (terminationReason) {
-        settleTermination(exitCode);
+        terminationExitCode = exitCode;
+        if (initialTerminationComplete) settleTermination(exitCode);
         return;
       }
       if (exitCode !== 0) {
@@ -1059,14 +1069,31 @@ function runCliCommand(options: {
       if (settled || terminationReason) return;
       terminationReason = reason;
       clearTimeout(timer);
-      terminateCliProcess(child, "SIGTERM");
-      forceKillTimer = setTimeout(() => {
+      void requestTermination("SIGTERM").then(() => {
         if (settled) return;
-        terminateCliProcess(child, "SIGKILL");
-        finalKillTimer = setTimeout(() => {
-          if (!settled) settleTermination(null);
+        initialTerminationComplete = true;
+        if (terminationExitCode !== undefined) {
+          settleTermination(terminationExitCode);
+          return;
+        }
+        if (process.platform === "win32") {
+          settleTermination(null);
+          return;
+        }
+        forceKillTimer = setTimeout(() => {
+          if (settled) return;
+          void requestTermination("SIGKILL").then(() => {
+            if (settled) return;
+            if (terminationExitCode !== undefined) {
+              settleTermination(terminationExitCode);
+              return;
+            }
+            finalKillTimer = setTimeout(() => {
+              if (!settled) settleTermination(null);
+            }, CLI_FORCE_KILL_GRACE_MS);
+          });
         }, CLI_FORCE_KILL_GRACE_MS);
-      }, CLI_FORCE_KILL_GRACE_MS);
+      });
     }
 
     function settleTermination(exitCode: number | null): void {
@@ -1074,12 +1101,20 @@ function runCliCommand(options: {
         ? `CLI LLM command ${safeLabel} exceeded the ${MAX_CLI_OUTPUT_CHARS}-character output limit`
         : `CLI LLM command ${safeLabel} timed out after ${options.timeoutMs}ms`;
       settle(() => reject(cliCommandError(
-        `${message}${exitCode === null ? "" : ` (exit ${exitCode})`}`,
+        `${message}${exitCode === null ? "" : ` (exit ${exitCode})`}${terminationDiagnostic ? `; ${terminationDiagnostic}` : ""}${terminationProcessErrorCode ? `; subprocess emitted ${terminationProcessErrorCode} during cleanup` : ""}`,
         stdout,
         stderr,
         options.input,
         childEnvSecrets
       )));
+    }
+
+    async function requestTermination(signal: NodeJS.Signals): Promise<void> {
+      const result = await processTree.terminateProcessTree(child, signal).catch(() => ({
+        confirmed: false,
+        diagnostic: "Process-tree termination failed without exposing subprocess diagnostics."
+      }));
+      if (result.diagnostic) terminationDiagnostic = result.diagnostic;
     }
 
     function settle(done: () => void): void {
@@ -1123,22 +1158,19 @@ function formatCliDiagnosticOutput(output: string, input: string, secretValues: 
   return `${safe.slice(0, half)}\n...[truncated ${safe.length - MAX_CLI_DIAGNOSTIC_CHARS} characters]...\n${safe.slice(-half)}`;
 }
 
+function safeSubprocessErrorCode(error: unknown): string {
+  const value = typeof error === "object" && error !== null && "code" in error && error.code
+    ? String(error.code)
+    : error instanceof Error
+      ? error.name
+      : "unknown error";
+  return /^[A-Za-z0-9_]+$/.test(value) ? value : "unknown error";
+}
+
 function secretValuesFromEnv(env: NodeJS.ProcessEnv): string[] {
   return Object.entries(env)
     .filter(([key, value]) => value && /(TOKEN|KEY|SECRET|PASSWORD|API|AUTH|CREDENTIAL|COOKIE|SESSION|HEADER|PROXY)/i.test(key) && value.length >= 8)
     .map(([, value]) => value as string);
-}
-
-function terminateCliProcess(child: ChildProcessWithoutNullStreams, signal: NodeJS.Signals): void {
-  if (process.platform !== "win32" && child.pid) {
-    try {
-      process.kill(-child.pid, signal);
-      return;
-    } catch {
-      // Fall through when the process group has already exited or cannot be signaled.
-    }
-  }
-  child.kill(signal);
 }
 
 function sanitizeCliLabel(label: string, secretValues: readonly string[]): string {

@@ -5,14 +5,15 @@ import { Command } from "commander";
 import {
   analyzePullRequest,
   browserCredentialKindForEnvName,
+  createAnalysisEvidenceDirectory,
+  createAnalysisProvenance,
   createDefaultLLMFromEnv,
   approveAction,
   indexRepository,
   loadContract,
-  readImpactMapArtifact,
+  publishAnalysisPdf,
+  readAnalysisArtifactBundle,
   readMissionArtifact,
-  readRunResultArtifact,
-  readRunResultsArtifact,
   promoteRegressionTest,
   resolveTargetUrl,
   type MissionRunResult,
@@ -25,11 +26,11 @@ import {
 import { canonicalizeStorageStatePath, checkBrowserAvailability, installChromium, printHtmlReportToPdf, validateStorageStateInput, verifyStoredAuthentication, writeStorageStateMetadata } from "@preflight-scout/browser-runner";
 import { buildAgentEnvironment, renderAgentPrompt, runAgentAuthLogin, runAgentExecution, type AgentExecKind, type AgentExecResult } from "@preflight-scout/agent-exec";
 import { executeMissionViaPromptTool, listMCPTools } from "@preflight-scout/mcp";
-import { resolveReviewedAnalysis } from "./analysis.js";
+import { CLI_ANALYSIS_RUNTIME, CLI_EXECUTION_RUNTIME, resolveReviewedAnalysis, type ReviewedAnalysis } from "./analysis.js";
 import { buildAuthLoginMission, resolveAuthStorageStatePath } from "./auth.js";
 import { createGenericDemoRepo } from "./demo.js";
 import { renderDoctorReport, runDoctor } from "./doctor.js";
-import { assertCanWriteConfig, createProgressReporter, loadEnvFile, parseTargetEnv, renderInitSummary, resolveAnalysisOutputDir, resolveBaseRef, resolveContractOutputDir, resolveRepoPath, resolveStorageOptions } from "./local.js";
+import { assertCanWriteConfig, createProgressReporter, loadEnvFile, parseTargetEnv, renderInitSummary, resolveAnalysisOutputDir, resolveArtifactReadDirectory, resolveArtifactReadFile, resolveBaseRef, resolveContractOutputDir, resolveHeadRef, resolveRepoPath, resolveStorageOptions } from "./local.js";
 import { runAutomationCandidates, safeArtifactSegment, selectAutomationCandidates } from "./missions.js";
 import { openReport, renderArtifactSummary } from "./summary.js";
 import { checkForUpdates, renderUpdateCheck } from "./update.js";
@@ -406,23 +407,35 @@ program
     const contract = await loadContract(root);
     // Validate contract-derived filesystem policy before starting either LLM
     // call. This keeps legacy or hand-edited unsafe configs fail-fast.
-    const outputDir = await resolveAnalysisOutputDir(root, options.outputDir, contract.defaults?.outputDir);
+    const output = await resolveAnalysisOutputDir(root, options.outputDir, contract.defaults?.outputDir);
+    const outputDir = output.directory;
     const base = await resolveBaseRef(root, options.base, contract);
+    const head = await resolveHeadRef(root, options.head);
     const appUrl = resolveOptionalAnalysisTargetUrl(contract, { url: options.url, target: options.target, env: options.env });
     if (appUrl) progress(`Analysis target context: ${appUrl}`);
     progress("Starting PR impact analysis");
     const result = await analyzePullRequest({
       root,
       base,
-      head: options.head,
+      head,
       title: options.title,
       body: options.body,
       progress
     });
+    const provenance = await createAnalysisProvenance({
+      root,
+      baseCommit: result.pullRequest.base!,
+      headCommit: result.pullRequest.head!,
+      contract: result.contract,
+      repoIndex: result.repoIndex,
+      analysisRuntime: CLI_ANALYSIS_RUNTIME
+    });
     progress(`Writing analysis artifacts to ${outputDir}`);
-    await writeAnalysisArtifacts(outputDir, {
+    const publication = await writeAnalysisArtifacts(outputDir, {
+      boundary: output.boundary,
       impactMap: result.impactMap,
       mission: result.mission,
+      provenance,
       markdown: result.markdown
     });
     if (options.writeReport) {
@@ -431,7 +444,7 @@ program
     const reportPath = path.join(outputDir, "report.html");
     if (options.pdf) {
       progress("Rendering PDF report");
-      await printHtmlReportToPdf({ htmlPath: reportPath, pdfPath: path.join(outputDir, "report.pdf") });
+      await renderAndPublishPdf(outputDir, output.boundary, publication.bundleSha256);
     }
     if (options.openReport) await openReport(reportPath, root);
     if (options.json) {
@@ -457,7 +470,7 @@ program
   .option("--head <ref>", "head git ref", "HEAD")
   .option("--title <text>", "PR title or change title to include in LLM analysis")
   .option("--body <text>", "PR body or change description to include in LLM analysis")
-  .option("--analysis-dir <path>", "reuse impact-map.json and mission.json from a previous preflight-scout analyze run")
+  .option("--analysis-dir <path>", "reuse a provenance-bound directory from a previous preflight-scout analyze run")
   .option("--env-file <path>", "load environment variables before running", ".env.preflight-scout.local")
   .option("--url <url>", "app URL; with --env auto, falls back to PREFLIGHT_SCOUT_APP_URL or .preflight-scout/config.yml")
   .option("--target <name>", "named app target from .preflight-scout/config.yml app.targets")
@@ -480,19 +493,30 @@ program
     progress("Loading environment and QA contract");
     await loadEnvFile(root, options.envFile);
     const contract = await loadContract(root);
-    const outputDir = await resolveAnalysisOutputDir(root, options.outputDir, contract.defaults?.outputDir);
-    const analysisDir = options.analysisDir ? resolveRepoPath(root, options.analysisDir) : undefined;
+    const output = await resolveAnalysisOutputDir(root, options.outputDir, contract.defaults?.outputDir);
+    const outputDir = output.directory;
+    const analysisLocation = options.analysisDir
+      ? await resolveArtifactReadDirectory(root, options.analysisDir)
+      : undefined;
+    const analysisDir = analysisLocation?.directory;
+    const base = await resolveBaseRef(root, options.base, contract);
+    const head = await resolveHeadRef(root, options.head);
+    const expectedProvenance = analysisDir
+      ? await createAnalysisProvenance({ root, baseCommit: base, headCommit: head, contract, analysisRuntime: CLI_ANALYSIS_RUNTIME })
+      : undefined;
     const analysis = await resolveReviewedAnalysis({
       analysisDir,
-      analyze: () => analyzeForRun(root, contract, {
-        base: options.base,
-        head: options.head,
+      boundary: analysisLocation?.boundary,
+      expectedProvenance,
+      analyze: () => analyzeForRun(root, {
+        base,
+        head,
         title: options.title,
         body: options.body,
         progress
       })
     });
-    if (analysisDir) progress(`Reusing analysis artifacts from ${analysisDir}`);
+    if (analysisDir) progress("Reusing reviewed analysis artifacts");
     const appUrl = resolveTargetUrl(contract, { url: options.url, target: options.target, env: options.env ?? contract.defaults?.targetEnv ?? "auto" });
     const llm = createDefaultLLMFromEnv();
     if (!llm) throw new Error("Browser execution requires an LLM provider.");
@@ -515,7 +539,7 @@ program
           contract,
           llm,
           root,
-          outputDir,
+          outputDir: await createAnalysisEvidenceDirectory(outputDir, output.boundary),
           headless: options.headed ? false : contract.defaults?.headless ?? true,
           maxTurns: parseOptionalPositiveInteger(options.maxTurns, "--max-turns") ?? contract.defaults?.maxTurns,
           storageState: storage.storageState,
@@ -523,16 +547,22 @@ program
           trace: options.trace && contract.defaults?.trace !== false,
           progress
         });
-    const runResult = runResults[0];
-    await writeAnalysisArtifacts(outputDir, {
+    const sourceBundleSha256 = analysisDir
+      && await pathsReferToSameDirectory(analysisDir, outputDir)
+      ? analysis.sourceBundleSha256
+      : undefined;
+    const publication = await writeAnalysisArtifacts(outputDir, {
+      boundary: output.boundary,
       impactMap: analysis.impactMap,
       mission: analysis.mission,
-      runResult,
-      runResults
+      provenance: analysis.provenance,
+      executionRuntime: CLI_EXECUTION_RUNTIME,
+      runResults,
+      expectedPreviousBundleSha256: sourceBundleSha256
     });
     if (options.pdf) {
       progress("Rendering PDF report");
-      await printHtmlReportToPdf({ htmlPath: path.join(outputDir, "report.html"), pdfPath: path.join(outputDir, "report.pdf") });
+      await renderAndPublishPdf(outputDir, output.boundary, publication.bundleSha256);
     }
     if (options.openReport) await openReport(path.join(outputDir, "report.html"), root);
     console.log(options.printReport
@@ -549,9 +579,11 @@ program
 
 program
   .command("replay")
-  .description("Run an existing mission artifact against a URL without re-analyzing the PR")
+  .description("Run a provenance-bound mission artifact against a URL without re-analyzing the PR")
   .option("--root <path>", "repository root", process.cwd())
   .requiredOption("--mission <path>", "path to mission.json")
+  .option("--base <ref>", "reviewed base git ref; defaults to config or origin/HEAD")
+  .option("--head <ref>", "reviewed head git ref", "HEAD")
   .option("--env-file <path>", "load environment variables before running", ".env.preflight-scout.local")
   .option("--url <url>", "app URL; with --env auto, falls back to PREFLIGHT_SCOUT_APP_URL or .preflight-scout/config.yml")
   .option("--target <name>", "named app target from .preflight-scout/config.yml app.targets")
@@ -571,16 +603,31 @@ program
   .action(async (options) => {
     const progress = createProgressReporter(!options.printReport);
     const root = path.resolve(options.root);
-    progress("Loading environment and mission artifact");
+    progress("Loading environment and bound mission artifacts");
     await loadEnvFile(root, options.envFile);
-    const mission = await readMissionArtifact(path.resolve(options.mission));
     const contract = await loadContract(root);
+    const missionLocation = await resolveArtifactReadFile(root, options.mission);
+    const missionPath = missionLocation.file;
+    if (path.basename(missionPath) !== "mission.json") {
+      throw new Error("Replay requires the mission.json file from a bound analysis directory.");
+    }
+    const analysisDir = path.dirname(missionPath);
+    const base = await resolveBaseRef(root, options.base, contract);
+    const head = await resolveHeadRef(root, options.head);
+    const expectedProvenance = await createAnalysisProvenance({
+      root,
+      baseCommit: base,
+      headCommit: head,
+      contract,
+      analysisRuntime: CLI_ANALYSIS_RUNTIME
+    });
+    const analysis = await readAnalysisArtifactBundle(analysisDir, missionLocation.boundary, expectedProvenance);
+    const mission = analysis.mission;
     const appUrl = resolveTargetUrl(contract, { url: options.url, target: options.target, env: options.env ?? contract.defaults?.targetEnv ?? "auto" });
     const llm = createDefaultLLMFromEnv();
     if (!llm) throw new Error("Browser execution requires an LLM provider.");
-    const outputDir = options.outputDir
-      ? resolveRepoPath(root, options.outputDir)
-      : await resolveContractOutputDir(root, contract.defaults?.outputDir ?? ".preflight-scout/runs/latest");
+    const output = await resolveAnalysisOutputDir(root, options.outputDir, contract.defaults?.outputDir);
+    const outputDir = output.directory;
     const selectedMissions = selectAutomationCandidates(mission, {
       missionId: options.missionId,
       allCandidates: options.allCandidates || contract.defaults?.allCandidates,
@@ -597,7 +644,7 @@ program
       contract,
       llm,
       root,
-      outputDir,
+      outputDir: await createAnalysisEvidenceDirectory(outputDir, output.boundary),
       headless: options.headed ? false : contract.defaults?.headless ?? true,
       maxTurns: parseOptionalPositiveInteger(options.maxTurns, "--max-turns") ?? contract.defaults?.maxTurns,
       storageState: storage.storageState,
@@ -605,16 +652,22 @@ program
       trace: options.trace && contract.defaults?.trace !== false,
       progress
     });
-    const impactMap = await readImpactMapArtifact(path.join(path.dirname(path.resolve(options.mission)), "impact-map.json"));
-    await writeAnalysisArtifacts(outputDir, {
+    const impactMap = analysis.impactMap;
+    const sourceBundleSha256 = await pathsReferToSameDirectory(analysisDir, outputDir)
+      ? analysis.bundleSha256
+      : undefined;
+    const publication = await writeAnalysisArtifacts(outputDir, {
+      boundary: output.boundary,
       impactMap,
       mission,
-      runResult: runResults[0],
-      runResults
+      provenance: analysis.provenance,
+      executionRuntime: CLI_EXECUTION_RUNTIME,
+      runResults,
+      expectedPreviousBundleSha256: sourceBundleSha256
     });
     if (options.pdf) {
       progress("Rendering PDF report");
-      await printHtmlReportToPdf({ htmlPath: path.join(outputDir, "report.html"), pdfPath: path.join(outputDir, "report.pdf") });
+      await renderAndPublishPdf(outputDir, output.boundary, publication.bundleSha256);
     }
     if (options.openReport) await openReport(path.join(outputDir, "report.html"), root);
     if (options.printReport) {
@@ -627,28 +680,31 @@ program
 program
   .command("report")
   .description("Rebuild the human QA report from run artifacts")
+  .option("--root <path>", "repository root and trusted artifact boundary", process.cwd())
   .option("--run-dir <path>", "run artifact directory", ".preflight-scout/runs/latest")
   .option("--open-report", "open report.html after writing artifacts", false)
   .option("--pdf", "write report.pdf beside report.html", false)
   .option("--print", "print Markdown report after writing", false)
   .action(async (options) => {
     const progress = createProgressReporter(!options.print);
-    const runDir = path.resolve(options.runDir);
-    progress(`Loading run artifacts from ${runDir}`);
-    const impactMap = await readImpactMapArtifact(path.join(runDir, "impact-map.json"));
-    const mission = await readMissionArtifact(path.join(runDir, "mission.json"));
-    const runResultsPath = path.join(runDir, "run-results.json");
-    const runResultPath = path.join(runDir, "run-result.json");
-    const runResults = await exists(runResultsPath)
-      ? await readRunResultsArtifact(runResultsPath)
-      : await exists(runResultPath)
-        ? [await readRunResultArtifact(runResultPath)]
-        : undefined;
-    await writeAnalysisArtifacts(runDir, { impactMap, mission, runResults });
+    const root = path.resolve(options.root);
+    const runLocation = await resolveArtifactReadDirectory(root, options.runDir);
+    const runDir = runLocation.directory;
+    progress("Loading declared run artifacts");
+    const bundle = await readAnalysisArtifactBundle(runDir, runLocation.boundary);
+    const publication = await writeAnalysisArtifacts(runDir, {
+      boundary: runLocation.boundary,
+      impactMap: bundle.impactMap,
+      mission: bundle.mission,
+      provenance: bundle.provenance,
+      executionRuntime: bundle.executionRuntime,
+      runResults: bundle.runResults,
+      expectedPreviousBundleSha256: bundle.bundleSha256
+    });
     const reportPath = path.join(runDir, "report.md");
     if (options.pdf) {
       progress("Rendering PDF report");
-      await printHtmlReportToPdf({ htmlPath: path.join(runDir, "report.html"), pdfPath: path.join(runDir, "report.pdf") });
+      await renderAndPublishPdf(runDir, runLocation.boundary, publication.bundleSha256);
     }
     if (options.openReport) await openReport(path.join(runDir, "report.html"), runDir);
     if (options.print) {
@@ -666,6 +722,8 @@ program
   .description("Ask the LLM to promote a Preflight Scout run into a durable Playwright test")
   .option("--root <path>", "repository root", process.cwd())
   .option("--env-file <path>", "load environment variables before promotion", ".env.preflight-scout.local")
+  .option("--base <ref>", "reviewed base git ref; defaults to config or origin/HEAD")
+  .option("--head <ref>", "reviewed head git ref", "HEAD")
   .option("--run-dir <path>", "run artifact directory", ".preflight-scout/runs/latest")
   .option("--mission-id <id>", "mission id to focus promotion on")
   .option("--output-dir <path>", "test output directory", "tests/preflight-scout")
@@ -673,17 +731,33 @@ program
   .action(async (options) => {
     const root = path.resolve(options.root);
     await loadEnvFile(root, options.envFile);
-    const runDir = resolveRepoPath(root, options.runDir);
+    const runLocation = await resolveArtifactReadDirectory(root, options.runDir);
+    const runDir = runLocation.directory;
     const contract = await loadContract(root);
-    const impactMap = await readImpactMapArtifact(path.join(runDir, "impact-map.json"));
-    const mission = await readMissionArtifact(path.join(runDir, "mission.json"));
-    const runResultsPath = path.join(runDir, "run-results.json");
-    const runResultPath = path.join(runDir, "run-result.json");
-    const runResults = await exists(runResultsPath)
-      ? await readRunResultsArtifact(runResultsPath)
-      : await exists(runResultPath)
-        ? [await readRunResultArtifact(runResultPath)]
-        : [];
+    const base = await resolveBaseRef(root, options.base, contract);
+    const head = await resolveHeadRef(root, options.head);
+    const expectedProvenance = await createAnalysisProvenance({
+      root,
+      baseCommit: base,
+      headCommit: head,
+      contract,
+      analysisRuntime: CLI_ANALYSIS_RUNTIME
+    });
+    const bundle = await readAnalysisArtifactBundle(
+      runDir,
+      runLocation.boundary,
+      expectedProvenance,
+      CLI_EXECUTION_RUNTIME
+    );
+    const impactMap = bundle.impactMap;
+    const mission = bundle.mission;
+    const runResults = bundle.runResults;
+    if (!runResults?.length) {
+      throw new Error(
+        "Refusing regression promotion because this reviewed analysis generation has no declared browser results. "
+        + "Run its reviewed browser missions first, then retry promotion from that run directory."
+      );
+    }
     const llm = createDefaultLLMFromEnv();
     if (!llm) throw new Error("Regression promotion requires an LLM provider.");
     const promotion = await promoteRegressionTest({
@@ -755,7 +829,7 @@ program
   .option("--head <ref>", "head git ref", "HEAD")
   .option("--title <text>", "PR title or change title to include in LLM analysis")
   .option("--body <text>", "PR body or change description to include in LLM analysis")
-  .option("--analysis-dir <path>", "reuse impact-map.json and mission.json from a previous preflight-scout analyze run")
+  .option("--analysis-dir <path>", "reuse a provenance-bound directory from a previous preflight-scout analyze run")
   .option("--env-file <path>", "load environment variables before running", ".env.preflight-scout.local")
   .option("--url <url>", "app URL; with --env auto, falls back to PREFLIGHT_SCOUT_APP_URL or .preflight-scout/config.yml")
   .option("--target <name>", "named app target from .preflight-scout/config.yml app.targets")
@@ -770,12 +844,30 @@ program
     const root = path.resolve(options.root);
     await loadEnvFile(root, options.envFile);
     const contract = await loadContract(root);
-    const analysisDir = options.analysisDir ? resolveRepoPath(root, options.analysisDir) : undefined;
+    const analysisLocation = options.analysisDir
+      ? await resolveArtifactReadDirectory(root, options.analysisDir)
+      : undefined;
+    const analysisDir = analysisLocation?.directory;
+    const base = await resolveBaseRef(root, options.base, contract);
+    const head = await resolveHeadRef(root, options.head);
+    const expectedProvenance = analysisDir
+      ? await createAnalysisProvenance({ root, baseCommit: base, headCommit: head, contract, analysisRuntime: CLI_ANALYSIS_RUNTIME })
+      : undefined;
     const analysis = await resolveReviewedAnalysis({
       analysisDir,
+      boundary: analysisLocation?.boundary,
+      expectedProvenance,
       analyze: async () => {
-        const base = await resolveBaseRef(root, options.base, contract);
-        return analyzePullRequest({ root, base, head: options.head, title: options.title, body: options.body });
+        const result = await analyzePullRequest({ root, base, head, title: options.title, body: options.body });
+        const provenance = await createAnalysisProvenance({
+          root,
+          baseCommit: result.pullRequest.base!,
+          headCommit: result.pullRequest.head!,
+          contract: result.contract,
+          repoIndex: result.repoIndex,
+          analysisRuntime: CLI_ANALYSIS_RUNTIME
+        });
+        return { impactMap: result.impactMap, mission: result.mission, provenance };
       }
     });
     const appUrl = resolveTargetUrl(contract, { url: options.url, target: options.target, env: options.env ?? contract.defaults?.targetEnv ?? "auto" });
@@ -909,36 +1001,34 @@ program
     if (!report.ok) process.exitCode = 1;
   });
 
-async function exists(filePath: string): Promise<boolean> {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function analyzeForRun(
   root: string,
-  contract: QAContract,
   options: {
-    base?: string;
+    base: string;
     head: string;
     title?: string;
     body?: string;
     progress: ProgressCallback;
   }
-): Promise<Pick<Awaited<ReturnType<typeof analyzePullRequest>>, "impactMap" | "mission">> {
-  const base = await resolveBaseRef(root, options.base, contract);
+): Promise<ReviewedAnalysis> {
   options.progress("Starting PR impact analysis");
-  return analyzePullRequest({
+  const result = await analyzePullRequest({
     root,
-    base,
+    base: options.base,
     head: options.head,
     title: options.title,
     body: options.body,
     progress: options.progress
   });
+  const provenance = await createAnalysisProvenance({
+    root,
+    baseCommit: result.pullRequest.base!,
+    headCommit: result.pullRequest.head!,
+    contract: result.contract,
+    repoIndex: result.repoIndex,
+    analysisRuntime: CLI_ANALYSIS_RUNTIME
+  });
+  return { impactMap: result.impactMap, mission: result.mission, provenance };
 }
 
 function renderMcpSetup(agent: string, outputDir: string): string {
@@ -965,6 +1055,48 @@ function renderMcpSetup(agent: string, outputDir: string): string {
 
 function shellQuote(value: string): string {
   return /^[a-zA-Z0-9_./:-]+$/.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+async function pathsReferToSameDirectory(left: string, right: string): Promise<boolean> {
+  if (path.resolve(left) === path.resolve(right)) return true;
+  try {
+    const [canonicalLeft, canonicalRight] = await Promise.all([fs.realpath(left), fs.realpath(right)]);
+    return canonicalLeft === canonicalRight;
+  } catch {
+    return false;
+  }
+}
+
+async function renderAndPublishPdf(
+  runDir: string,
+  boundary: string,
+  expectedBundleSha256: string | undefined
+): Promise<void> {
+  if (!expectedBundleSha256) {
+    throw new Error("Cannot publish report.pdf without a complete analysis manifest.");
+  }
+  const temporaryDirectory = await createAnalysisEvidenceDirectory(runDir, boundary);
+  const temporaryPdfPath = path.join(temporaryDirectory, "report.pdf");
+  try {
+    const sourceBundle = await readAnalysisArtifactBundle(runDir, boundary);
+    if (sourceBundle.bundleSha256 !== expectedBundleSha256) {
+      throw new Error("Cannot render report.pdf because the analysis generation changed.");
+    }
+    await printHtmlReportToPdf({
+      htmlContent: sourceBundle.reportHtml,
+      reportRoot: runDir,
+      pdfPath: temporaryPdfPath
+    });
+    await publishAnalysisPdf({
+      runDir,
+      boundary,
+      temporaryPdfPath,
+      expectedBundleSha256
+    });
+  } finally {
+    await fs.rm(temporaryPdfPath, { force: true }).catch(() => undefined);
+    await fs.rmdir(temporaryDirectory).catch(() => undefined);
+  }
 }
 
 function resolveOptionalAnalysisTargetUrl(contract: QAContract, options: { url?: string; target?: string; env?: string }): string | undefined {

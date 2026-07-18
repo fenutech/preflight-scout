@@ -62,6 +62,25 @@ preflight-scout run --analysis-dir .preflight-scout/runs/latest --open-report --
 
 This prevents a later browser run from replanning a different role or mission shape than the one you reviewed.
 
+`analyze` writes `analysis-manifest.json` after the reviewed artifacts are
+complete. Before a browser or delegated-agent run starts, Preflight Scout checks
+that the directory still belongs to the same repository, indexed context,
+commits, contract, schema, and exact installed Preflight Scout CLI/core package
+code/build. This identity covers Preflight Scout-owned outputs, not third-party
+dependencies, Node.js, the operating system, or the browser build. If any bound value changed, run
+the analysis again and review the replacement instead of editing the old
+directory.
+
+Preflight Scout serializes writes to one run directory. A lock remaining after
+an interrupted process is not removed automatically: confirm that no writer is
+still active, remove `.analysis-generation.lock`, and retry.
+
+Concurrent browser commands use separate evidence-generation directories.
+Their reports store only portable paths relative to the run. Explicit external
+artifact directories remain available and are canonicalized as a separate
+trusted boundary; a contract-provided output directory cannot leave
+`.preflight-scout/runs/`.
+
 For repos with more than one app surface, configure named targets:
 
 ```yaml

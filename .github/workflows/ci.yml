@@ -101,6 +101,8 @@ jobs:
           node scripts/verify-packed-packages.mjs
       - run: pnpm test:npm-global-smoke
       - run: pnpm smoke:npm-global
+      - name: Verify Windows descendant-process cleanup
+        run: pnpm test:windows-process-tree
 
   required:
     name: Required

@@ -1,12 +1,21 @@
 import { execFile } from "node:child_process";
-import { access, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, cp, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
-import { writeAnalysisArtifacts, type ImpactMap, type QAMission } from "@preflight-scout/core";
+import {
+  createAnalysisProvenance,
+  createTrustedGit,
+  loadContract,
+  resolveTrustedGitCommit,
+  writeAnalysisArtifacts,
+  type ImpactMap,
+  type QAMission
+} from "@preflight-scout/core";
 import { createGenericDemoRepo } from "./demo.js";
+import { CLI_ANALYSIS_RUNTIME } from "./analysis.js";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -23,16 +32,16 @@ describe("agent-run CLI", () => {
     const { stdout } = await runCli(["agent-run", "--help"]);
 
     expect(stdout).toContain("--analysis-dir <path>");
-    expect(stdout).toContain("reuse impact-map.json and mission.json");
+    expect(stdout).toContain("reuse a provenance-bound directory");
   });
 
-  it("delegates the reviewed mission without resolving the base ref or replanning", async () => {
+  it("delegates the reviewed mission when ref aliases resolve to the exact bound commits", async () => {
     const parent = await mkdtemp(path.join(tmpdir(), "preflight-scout-agent-run-"));
     tempDirs.push(parent);
     const demo = await createGenericDemoRepo({ output: path.join(parent, "repo") });
-    const analysisDir = path.join(demo.root, ".preflight-scout", "reviewed");
+    const analysisDir = path.join(demo.root, ".preflight-scout", "runs", "reviewed");
     await mkdir(analysisDir, { recursive: true });
-    await writeAnalysisArtifacts(analysisDir, reviewedAnalysis());
+    await writeReviewedAnalysis(demo.root, analysisDir, reviewedAnalysis());
     const promptCapture = path.join(parent, "reviewed-agent-prompt.txt");
     const agentScript = path.join(parent, "print-agent-prompt.mjs");
     await writeFile(agentScript, `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(promptCapture)}, process.argv.at(-1) ?? ""); console.log("reviewed prompt received");\n`);
@@ -40,8 +49,9 @@ describe("agent-run CLI", () => {
     await runCli([
       "agent-run",
       "--root", demo.root,
-      "--analysis-dir", ".preflight-scout/reviewed",
-      "--base", "missing-ref-that-must-not-be-resolved",
+      "--analysis-dir", ".preflight-scout/runs/reviewed",
+      "--base", "HEAD~1",
+      "--head", "HEAD",
       "--agent", "custom",
       "--command", process.execPath,
       "--arg", agentScript
@@ -52,13 +62,58 @@ describe("agent-run CLI", () => {
     expect(capturedPrompt).toContain('"id": "reviewed-flow"');
   }, 15_000);
 
+  it("rejects an unresolved reviewed ref before the delegated agent starts", async () => {
+    const parent = await mkdtemp(path.join(tmpdir(), "preflight-scout-agent-run-ref-"));
+    tempDirs.push(parent);
+    const demo = await createGenericDemoRepo({ output: path.join(parent, "repo") });
+    const analysisDir = path.join(demo.root, ".preflight-scout", "runs", "reviewed");
+    await writeReviewedAnalysis(demo.root, analysisDir, reviewedAnalysis());
+    const marker = path.join(parent, "agent-started");
+    const agentScript = path.join(parent, "mark-agent-start.mjs");
+    await writeFile(agentScript, `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "started");\n`);
+
+    await expect(runCli([
+      "agent-run",
+      "--root", demo.root,
+      "--analysis-dir", ".preflight-scout/runs/reviewed",
+      "--base", "missing-ref-that-must-be-resolved",
+      "--agent", "custom",
+      "--command", process.execPath,
+      "--arg", agentScript
+    ])).rejects.toMatchObject({ stderr: expect.stringContaining("missing-ref-that-must-be-resolved") });
+    await expect(access(marker)).rejects.toThrow();
+  });
+
+  it("rejects an analysis directory copied from another repository before delegation", async () => {
+    const parent = await mkdtemp(path.join(tmpdir(), "preflight-scout-agent-run-foreign-"));
+    tempDirs.push(parent);
+    const source = await createGenericDemoRepo({ output: path.join(parent, "source") });
+    const target = await createGenericDemoRepo({ output: path.join(parent, "target") });
+    const sourceAnalysis = path.join(source.root, ".preflight-scout", "runs", "reviewed");
+    const targetAnalysis = path.join(target.root, ".preflight-scout", "runs", "reviewed");
+    await writeReviewedAnalysis(source.root, sourceAnalysis, reviewedAnalysis());
+    await cp(sourceAnalysis, targetAnalysis, { recursive: true });
+    const marker = path.join(parent, "foreign-agent-started");
+    const agentScript = path.join(parent, "mark-foreign-agent-start.mjs");
+    await writeFile(agentScript, `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "started");\n`);
+
+    await expect(runCli([
+      "agent-run",
+      "--root", target.root,
+      "--analysis-dir", ".preflight-scout/runs/reviewed",
+      "--base", "HEAD~1",
+      "--agent", "custom",
+      "--command", process.execPath,
+      "--arg", agentScript
+    ])).rejects.toMatchObject({ stderr: expect.stringContaining("different repository") });
+    await expect(access(marker)).rejects.toThrow();
+  }, 15_000);
+
   it("forwards only selected role credentials and no unrelated host secrets to a custom agent", async () => {
     const parent = await mkdtemp(path.join(tmpdir(), "preflight-scout-agent-env-"));
     tempDirs.push(parent);
     const demo = await createGenericDemoRepo({ output: path.join(parent, "repo"), scenario: "auth-dashboard" });
-    const analysisDir = path.join(demo.root, ".preflight-scout", "reviewed");
-    await mkdir(analysisDir, { recursive: true });
-    await writeAnalysisArtifacts(analysisDir, reviewedAnalysis("qa_user"));
+    const analysisDir = path.join(demo.root, ".preflight-scout", "runs", "reviewed");
     await writeFile(path.join(demo.root, ".preflight-scout", "config.yml"), `app:
   name: Agent environment fixture
   localUrl: http://127.0.0.1:4173
@@ -78,6 +133,7 @@ sensitiveAreas: []
 testData: {}
 unknowns: []
 `);
+    await writeReviewedAnalysis(demo.root, analysisDir, reviewedAnalysis("qa_user"));
     const agentScript = path.join(parent, "inspect-agent-env.mjs");
     await writeFile(agentScript, `
 const prompt = process.argv.at(-1) ?? "";
@@ -94,7 +150,8 @@ console.log(JSON.stringify({
     const { stdout } = await runCli([
       "agent-run",
       "--root", demo.root,
-      "--analysis-dir", ".preflight-scout/reviewed",
+      "--analysis-dir", ".preflight-scout/runs/reviewed",
+      "--base", "HEAD~1",
       "--agent", "custom",
       "--command", process.execPath,
       "--arg", agentScript
@@ -118,10 +175,9 @@ console.log(JSON.stringify({
     const parent = await mkdtemp(path.join(tmpdir(), "preflight-scout-agent-malicious-role-"));
     tempDirs.push(parent);
     const demo = await createGenericDemoRepo({ output: path.join(parent, "repo"), scenario: "auth-dashboard" });
-    const analysisDir = path.join(demo.root, ".preflight-scout", "reviewed");
-    await mkdir(analysisDir, { recursive: true });
-    await writeAnalysisArtifacts(analysisDir, reviewedAnalysis("qa_user"));
+    const analysisDir = path.join(demo.root, ".preflight-scout", "runs", "reviewed");
     await writeFile(path.join(demo.root, ".preflight-scout", "config.yml"), maliciousCredentialContract());
+    await writeReviewedAnalysis(demo.root, analysisDir, reviewedAnalysis("qa_user"));
     const marker = path.join(parent, "agent-started");
     const agentScript = path.join(parent, "mark-agent-start.mjs");
     await writeFile(agentScript, `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "started");\n`);
@@ -129,7 +185,8 @@ console.log(JSON.stringify({
     await expect(runCli([
       "agent-run",
       "--root", demo.root,
-      "--analysis-dir", ".preflight-scout/reviewed",
+      "--analysis-dir", ".preflight-scout/runs/reviewed",
+      "--base", "HEAD~1",
       "--agent", "custom",
       "--command", process.execPath,
       "--arg", agentScript
@@ -143,14 +200,13 @@ console.log(JSON.stringify({
     const parent = await mkdtemp(path.join(tmpdir(), "preflight-scout-agent-url-"));
     tempDirs.push(parent);
     const demo = await createGenericDemoRepo({ output: path.join(parent, "repo"), scenario: "auth-dashboard" });
-    const analysisDir = path.join(demo.root, ".preflight-scout", "reviewed");
-    await mkdir(analysisDir, { recursive: true });
-    await writeAnalysisArtifacts(analysisDir, reviewedAnalysis("qa_user"));
+    const analysisDir = path.join(demo.root, ".preflight-scout", "runs", "reviewed");
     const configPath = path.join(demo.root, ".preflight-scout", "config.yml");
     await writeFile(configPath, (await readFile(configPath, "utf8")).replace(
       "localUrl: http://127.0.0.1:4173",
       "localUrl: data:text/plain,private"
     ));
+    await writeReviewedAnalysis(demo.root, analysisDir, reviewedAnalysis("qa_user"));
     const marker = path.join(parent, "agent-started");
     const agentScript = path.join(parent, "mark-agent-start.mjs");
     await writeFile(agentScript, `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "started");\n`);
@@ -158,7 +214,7 @@ console.log(JSON.stringify({
     await expect(runCli([
       "agent-run",
       "--root", demo.root,
-      "--analysis-dir", ".preflight-scout/reviewed",
+      "--analysis-dir", ".preflight-scout/runs/reviewed",
       "--agent", "custom",
       "--command", process.execPath,
       "--arg", agentScript
@@ -275,6 +331,27 @@ async function runCli(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ st
     cwd: repoRoot,
     env: { ...process.env, PREFLIGHT_SCOUT_LLM_PROVIDER: "none", ...env }
   });
+}
+
+async function writeReviewedAnalysis(
+  root: string,
+  analysisDir: string,
+  artifacts: { impactMap: ImpactMap; mission: QAMission }
+): Promise<void> {
+  const contract = await loadContract(root);
+  const git = await createTrustedGit({ targetRoot: root });
+  const [baseCommit, headCommit] = await Promise.all([
+    resolveTrustedGitCommit(git, root, "HEAD~1"),
+    resolveTrustedGitCommit(git, root, "HEAD")
+  ]);
+  const provenance = await createAnalysisProvenance({
+    root,
+    baseCommit,
+    headCommit,
+    contract,
+    analysisRuntime: CLI_ANALYSIS_RUNTIME
+  });
+  await writeAnalysisArtifacts(analysisDir, { boundary: root, ...artifacts, provenance });
 }
 
 function reviewedAnalysis(role?: string): { impactMap: ImpactMap; mission: QAMission } {

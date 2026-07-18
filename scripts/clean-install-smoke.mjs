@@ -42,7 +42,18 @@ try {
   await execFileAsync(pnpm.command, [...pnpm.args, "install", "--prefer-offline"], commandOptions(tempRoot, 1024 * 1024 * 8, 180000));
   await assertInstalledPackages(manifests);
 
-  const resolutionProbe = `for (const name of ${JSON.stringify(Object.keys(tarballs))}) { const resolved = import.meta.resolve(name); if (!resolved.startsWith("file:")) throw new Error(\`Could not resolve \${name}\`); }`;
+  const resolutionProbe = `
+    import path from "node:path";
+    import { fileURLToPath } from "node:url";
+    import { verifyPackageDistBuildIdentity } from "@preflight-scout/core";
+    for (const name of ${JSON.stringify(Object.keys(tarballs))}) {
+      const resolved = import.meta.resolve(name);
+      if (!resolved.startsWith("file:")) throw new Error(\`Could not resolve \${name}\`);
+      const modulePath = fileURLToPath(resolved);
+      const packageRoot = path.resolve(path.dirname(modulePath), "..");
+      verifyPackageDistBuildIdentity(packageRoot, modulePath, name, ${JSON.stringify(cliManifest.version)});
+    }
+  `;
   await execFileAsync(process.execPath, ["--input-type=module", "--eval", resolutionProbe], commandOptions(tempRoot));
   const version = await runPreflightScout(["--version"]);
   if (version.stdout.trim() !== cliManifest.version) throw new Error(`Installed preflight-scout reported unexpected version ${version.stdout.trim()}.`);
@@ -104,7 +115,7 @@ try {
     if (runResults.length !== 1 || runResults[0]?.status !== "passed" || !runResults[0]?.evidence?.tracePath) {
       throw new Error(`Packed CLI browser smoke did not produce one passed mission with trace evidence. Result: ${formatRunResultDiagnostic(runResults)}`);
     }
-    const trace = await readFile(runResults[0].evidence.tracePath);
+    const trace = await readFile(resolveRunArtifact(runDir, runResults[0].evidence.tracePath));
     if (!trace.length) throw new Error("Packed CLI browser smoke produced an empty trace artifact.");
     await runPreflightScout(["report", "--run-dir", runDir]);
     await assertReportArtifacts(runDir, true);
@@ -135,7 +146,7 @@ async function runPreflightScoutAllowFailure(args, env, timeout) {
 }
 
 async function assertReportArtifacts(directory, expectResults) {
-  for (const name of ["impact-map.json", "mission.json", "report.md", "report.html"]) {
+  for (const name of ["analysis-manifest.json", "impact-map.json", "mission.json", "report.md", "report.html"]) {
     const content = await readFile(path.join(directory, name), "utf8");
     if (!content.includes("Generic checkout") && (name === "report.md" || name === "report.html")) {
       throw new Error(`${name} from packed CLI smoke did not contain mission-specific report content.`);
@@ -155,7 +166,7 @@ async function assertInstalledPackages(expectedManifests) {
       await readFile(path.join(installedRoot, required));
     }
     const stamp = JSON.parse(await readFile(path.join(installedRoot, "dist", ".preflight-scout-build.json"), "utf8"));
-    if (stamp.schemaVersion !== 2 || stamp.packageName !== expected.name || stamp.packageVersion !== expected.version) {
+    if (stamp.schemaVersion !== 3 || stamp.packageName !== expected.name || stamp.packageVersion !== expected.version || !/^sha256:[0-9a-f]{64}$/.test(stamp.packageRuntimeHash) || !/^sha256:[0-9a-f]{64}$/.test(stamp.sourceHash)) {
       throw new Error(`Clean install found an invalid build-integrity stamp for ${expected.name}.`);
     }
   }
@@ -185,6 +196,25 @@ function assertDoctorReport(report, browserRequired, exitCode) {
   } else if (failures.some((check) => check.id !== "playwright")) {
     throw new Error(`Packed CLI doctor had an unexpected failure: ${failures.map((check) => check.id).join(", ")}.`);
   }
+}
+
+function resolveRunArtifact(runDir, artifactPath) {
+  if (
+    typeof artifactPath !== "string"
+    || !artifactPath
+    || path.posix.isAbsolute(artifactPath)
+    || artifactPath.includes("\\")
+    || artifactPath.split("/").some((segment) => !segment || segment === "." || segment === "..")
+  ) {
+    throw new Error("Packed CLI browser smoke returned an unsafe trace artifact path.");
+  }
+  const root = path.resolve(runDir);
+  const candidate = path.resolve(root, ...artifactPath.split("/"));
+  const relative = path.relative(root, candidate);
+  if (path.isAbsolute(relative) || relative === ".." || relative.startsWith(`..${path.sep}`)) {
+    throw new Error("Packed CLI browser smoke returned a trace artifact outside its run directory.");
+  }
+  return candidate;
 }
 
 function fileDependencySpecifier(file) {

@@ -5,6 +5,8 @@ import path from "node:path";
 import {
   analyzePullRequest,
   buildHumanReportSummary,
+  createAnalysisEvidenceDirectory,
+  createAnalysisProvenance,
   createDefaultLLMFromEnv,
   writeAnalysisArtifacts,
   type MissionRunResult
@@ -15,20 +17,23 @@ import { parseFailOn, shouldFail, statusDescription } from "./gate.js";
 import { defaultArtifactName, resolveActionAppUrl, setCommitStatus, upsertPullRequestComment } from "./github.js";
 import { ensurePullRequestRefs } from "./git.js";
 import { inputValue, readInputs } from "./inputs.js";
-import { runAutomationCandidates, selectAutomationCandidates } from "./missions.js";
+import { ACTION_ANALYSIS_RUNTIME, ACTION_EXECUTION_RUNTIME, runAutomationCandidates, selectAutomationCandidates } from "./missions.js";
+import { resolveActionOutputDirectory } from "./output.js";
 
 async function main(): Promise<void> {
   const pull = github.context.payload.pull_request;
   if (!pull) throw new Error("Preflight Scout only runs on pull_request events for now.");
 
   const inputs = readInputs();
+  const workspace = process.cwd();
+  const output = await resolveActionOutputDirectory(workspace, inputs.outputDir);
   const failOn = parseFailOn(inputs.failOn);
   const octokit = github.getOctokit(inputs.token);
   await setCommitStatus(octokit, pull, "pending", "Preflight Scout analysis is running");
 
   await ensurePullRequestRefs(pull.base.sha, pull.head.sha);
   const analysis = await analyzePullRequest({
-    root: process.cwd(),
+    root: workspace,
     base: pull.base.sha,
     head: pull.head.sha,
     title: pull.title,
@@ -59,8 +64,8 @@ async function main(): Promise<void> {
         appUrl: resolvedAppUrl,
         contract: analysis.contract,
         llm,
-        root: process.cwd(),
-        outputDir: inputs.outputDir,
+        root: workspace,
+        outputDir: await createAnalysisEvidenceDirectory(output.directory, output.boundary),
         headless: inputs.headless,
         maxTurns: inputs.maxTurns,
         storageState: inputs.storageState,
@@ -71,23 +76,35 @@ async function main(): Promise<void> {
   }
 
   const generatedAt = new Date().toISOString();
+  const provenance = await createAnalysisProvenance({
+    root: workspace,
+    baseCommit: pull.base.sha,
+    headCommit: pull.head.sha,
+    contract: analysis.contract,
+    repoIndex: analysis.repoIndex,
+    createdAt: generatedAt,
+    analysisRuntime: ACTION_ANALYSIS_RUNTIME
+  });
   const summary = buildHumanReportSummary({
     impactMap: analysis.impactMap,
     mission: analysis.mission,
     runResults,
     generatedAt
   });
-  await writeAnalysisArtifacts(inputs.outputDir, {
+  await writeAnalysisArtifacts(output.directory, {
+    boundary: output.boundary,
     impactMap: analysis.impactMap,
     mission: analysis.mission,
+    provenance,
+    ...(runResults ? { executionRuntime: ACTION_EXECUTION_RUNTIME } : {}),
     runResults,
     reportSummary: summary
   });
 
-  await fs.access(path.join(inputs.outputDir, "report.md"));
+  await fs.access(path.join(output.directory, "report.md"));
   const artifactName = inputs.artifactName ?? defaultArtifactName(pull);
   const artifactId = inputs.uploadArtifact
-    ? await uploadReportArtifact(inputs.outputDir, artifactName, runResults)
+    ? await uploadReportArtifact(output.directory, artifactName, output.boundary)
     : undefined;
   if (inputs.comment) {
     await upsertPullRequestComment(octokit, pull, renderPullRequestComment({
@@ -110,9 +127,9 @@ async function main(): Promise<void> {
   core.setOutput("failed-count", String(summary.counts.failed));
   core.setOutput("blocked-count", String(summary.counts.blocked));
   core.setOutput("fail-on", failOn);
-  core.setOutput("report-path", path.join(inputs.outputDir, "report.md"));
-  core.setOutput("report-html-path", path.join(inputs.outputDir, "report.html"));
-  core.setOutput("summary-path", path.join(inputs.outputDir, "report-summary.json"));
+  core.setOutput("report-path", path.join(output.directory, "report.md"));
+  core.setOutput("report-html-path", path.join(output.directory, "report.html"));
+  core.setOutput("summary-path", path.join(output.directory, "report-summary.json"));
   if (resolvedAppUrl) core.setOutput("app-url", resolvedAppUrl);
   if (artifactId) core.setOutput("artifact-id", String(artifactId));
 

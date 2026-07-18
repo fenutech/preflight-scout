@@ -6,6 +6,25 @@ All notable changes to Preflight Scout are documented here. This project follows
 
 ## [Unreleased]
 
+### Security
+
+- Bound reused analysis directories to the repository identity, indexed
+  context, exact base and head commits, QA contract, artifact schema, and
+  exact Preflight Scout-owned core plus CLI or Action package code/build that
+  produced them. Browser results separately record the exact Preflight
+  Scout-owned orchestrator plus browser-runner package code/build. Packaged
+  entrypoints verify their metadata and declared outputs before accepting those
+  identities; this is not an attestation of third-party dependencies, Node.js,
+  the operating system, or the browser build.
+  Missing, foreign, stale, modified, or post-build-patched artifacts now require
+  a fresh reviewed analysis before browser or delegated execution.
+
+### Changed
+
+- Described the built-in repository index as a bounded inventory rather than a
+  detected route/framework/component map, and marked empty reserved
+  classification fields as unclassified instead of absent.
+
 ### Fixed
 
 - Made explicit local and staging target selection fail closed when the selected
@@ -16,6 +35,40 @@ All notable changes to Preflight Scout are documented here. This project follows
 - Added deterministic repository-inventory coverage metadata so analyses at
   the file limit remain distinguishable from silently truncated inventories,
   and carry incomplete coverage into model context and final report unknowns.
+- Made each analysis manifest declare the current browser results and evidence,
+  so files left by an older generation cannot change a new report or promoted
+  test.
+- Bound the Markdown, HTML, and JSON report outputs into the same manifest and
+  made the GitHub Action upload a private, re-hashed staging copy of only the
+  declared generation rather than mutable checkout files.
+- Stored browser-result and evidence references as portable run-relative paths,
+  so artifacts neither expose checkout paths nor break after a reviewed bundle
+  is moved.
+- Serialized same-directory artifact generations with an exclusive lock, and
+  constrained cleanup and reads to the trusted repository boundary so a
+  symlinked run-directory ancestor cannot redirect them outside the checkout.
+- Isolated browser output in a unique evidence directory per invocation and
+  made same-directory replacement revalidate the complete declared bundle, so
+  concurrent commands or post-review evidence changes cannot be silently
+  blessed by a new manifest.
+- Rendered optional PDFs to a unique temporary path, publish them only after a
+  lock-held bundle check, and record their digest through manifest-last
+  publication, preventing an obsolete, stale, or modified PDF from being
+  accepted as the current report.
+- Preserved explicit external artifact directories through a separate canonical
+  trust boundary, including the standard macOS `/tmp` filesystem alias.
+- Required explicit repository-local artifact directories to be excluded by
+  Git as directories, so contents-only ignore rules cannot re-include generated
+  reports and invalidate the reviewed repository context.
+- Bound `replay` to the reviewed analysis manifest instead of accepting a loose
+  mission file.
+- Isolated internal QA contract defaults from mutations of the public
+  `DEFAULT_CONTRACT` compatibility object, and returned fresh deep copies for
+  config-free and partial-config loads.
+- Terminated delegated-agent and local-agent descendant processes on Windows
+  after timeouts or output-limit violations by invoking the OS-owned
+  `System32\taskkill.exe` by absolute path, with bounded cleanup and no
+  taskkill output in diagnostics. POSIX process-group signaling is unchanged.
 
 ## [0.1.4] - 2026-07-17
 

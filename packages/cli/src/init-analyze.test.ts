@@ -53,9 +53,54 @@ describe("init followed by analyze", () => {
     ], env);
 
     const outputDir = path.join(demo.root, ".preflight-scout", "runs", "latest");
-    for (const artifact of ["impact-map.json", "mission.json", "report.md", "report.html"]) {
+    for (const artifact of ["analysis-manifest.json", "impact-map.json", "mission.json", "report.md", "report.html"]) {
       await expect(readFile(path.join(outputDir, artifact), "utf8")).resolves.not.toHaveLength(0);
     }
+    await expect(readFile(agentLog, "utf8")).resolves.toBe("qa_contract\nimpact_map\nqa_mission\n");
+
+    const staleResultsPath = path.join(outputDir, "run-results.json");
+    await writeFile(staleResultsPath, `${JSON.stringify([{
+      missionId: "stale-browser-mission",
+      status: "passed",
+      results: [{ stepId: "stale", status: "passed", message: "Old result" }],
+      artifacts: []
+    }], null, 2)}\n`);
+    await runCli(["report", "--root", demo.root, "--run-dir", outputDir], env);
+    await expect(access(staleResultsPath)).rejects.toThrow();
+    const reportSummary = JSON.parse(await readFile(path.join(outputDir, "report-summary.json"), "utf8")) as {
+      verdict: string;
+      counts: { browserMissions: number };
+    };
+    expect(reportSummary).toMatchObject({
+      verdict: "no_browser_evidence",
+      counts: { browserMissions: 0 }
+    });
+
+    await expect(runCli([
+      "promote",
+      "--root", demo.root,
+      "--base", "origin/main",
+      "--head", "HEAD",
+      "--run-dir", outputDir,
+      "--dry-run"
+    ], env)).rejects.toMatchObject({
+      stderr: expect.stringContaining("no declared browser results")
+    });
+    await expect(readFile(agentLog, "utf8")).resolves.toBe("qa_contract\nimpact_map\nqa_mission\n");
+
+    const missionPath = path.join(outputDir, "mission.json");
+    const mission = JSON.parse(await readFile(missionPath, "utf8")) as { title: string };
+    await writeFile(missionPath, `${JSON.stringify({ ...mission, title: "Tampered replay mission" }, null, 2)}\n`);
+    await expect(runCli([
+      "replay",
+      "--root", demo.root,
+      "--mission", missionPath,
+      "--base", "origin/main",
+      "--head", "HEAD",
+      "--url", "http://127.0.0.1:3004"
+    ], env)).rejects.toMatchObject({
+      stderr: expect.stringContaining("mission.json no longer matches its reviewed digest")
+    });
     await expect(readFile(agentLog, "utf8")).resolves.toBe("qa_contract\nimpact_map\nqa_mission\n");
   }, 30_000);
 
@@ -123,6 +168,78 @@ describe("init followed by analyze", () => {
       stderr: expect.stringContaining("must resolve to a directory beneath")
     });
     await expect(access(marker)).rejects.toThrow();
+  }, 30_000);
+
+  it.each(["analyze", "run"] as const)("%s rejects an explicit unignored in-repository output before starting model calls", async (command) => {
+    const parent = await mkdtemp(path.join(tmpdir(), "preflight-scout-explicit-output-fail-fast-"));
+    tempDirs.push(parent);
+    const demo = await createGenericDemoRepo({ output: path.join(parent, "repo") });
+    const marker = path.join(parent, "agent-started");
+    const agentScript = path.join(parent, "must-not-start.mjs");
+    await writeFile(agentScript, `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "started");\n`);
+
+    await expect(runCli([
+      command,
+      "--root", demo.root,
+      "--base", "HEAD~1",
+      "--head", "HEAD",
+      "--output-dir", "preflight-output"
+    ], deterministicAgentEnv(agentScript))).rejects.toMatchObject({
+      stderr: expect.stringContaining("must be untracked and ignored by Git")
+    });
+    await expect(access(marker)).rejects.toThrow();
+  }, 30_000);
+
+  it.each(["analyze", "run"] as const)("%s rejects a contents-only ignored output with a re-included report before starting model calls", async (command) => {
+    const parent = await mkdtemp(path.join(tmpdir(), "preflight-scout-negated-output-fail-fast-"));
+    tempDirs.push(parent);
+    const demo = await createGenericDemoRepo({ output: path.join(parent, "repo") });
+    await writeFile(
+      path.join(demo.root, ".gitignore"),
+      "preflight-output/*\n!preflight-output/report.md\n"
+    );
+    const marker = path.join(parent, "agent-started");
+    const agentScript = path.join(parent, "must-not-start.mjs");
+    await writeFile(agentScript, `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "started");\n`);
+
+    await expect(runCli([
+      command,
+      "--root", demo.root,
+      "--base", "HEAD~1",
+      "--head", "HEAD",
+      "--output-dir", "preflight-output"
+    ], deterministicAgentEnv(agentScript))).rejects.toMatchObject({
+      stderr: expect.stringContaining("must be untracked and ignored by Git")
+    });
+    await expect(access(marker)).rejects.toThrow();
+  }, 30_000);
+
+  it("keeps an explicitly selected external analysis directory reusable", async () => {
+    const parent = await mkdtemp(path.join(tmpdir(), "preflight-scout-external-analysis-"));
+    tempDirs.push(parent);
+    const demo = await createGenericDemoRepo({ output: path.join(parent, "repo") });
+    await execFileAsync("git", ["update-ref", "refs/remotes/origin/main", "HEAD~1"], { cwd: demo.root });
+    const externalOutput = path.join(parent, "external-artifacts", "reviewed-run");
+    const agentLog = path.join(parent, "agent-calls.log");
+    const agentScript = path.join(parent, "deterministic-external-agent.mjs");
+    await writeFile(agentScript, deterministicAgentSource(agentLog), { encoding: "utf8", mode: 0o600 });
+    const env = deterministicAgentEnv(agentScript);
+
+    await runCli([
+      "analyze",
+      "--root", demo.root,
+      "--base", "origin/main",
+      "--head", "HEAD",
+      "--output-dir", externalOutput
+    ], env);
+    await runCli(["report", "--root", demo.root, "--run-dir", externalOutput], env);
+
+    await expect(readFile(path.join(externalOutput, "analysis-manifest.json"), "utf8")).resolves.toContain(
+      '"kind": "preflight-scout-analysis"'
+    );
+    await expect(readFile(path.join(externalOutput, "report.md"), "utf8")).resolves.toContain(
+      "# Preflight Scout Report"
+    );
   }, 30_000);
 });
 

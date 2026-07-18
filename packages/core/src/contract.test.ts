@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { indexRepository, loadContract, resolveTargetUrl, writeInitialContract, type QAContract } from "./index.js";
+import { DEFAULT_CONTRACT, indexRepository, loadContract, resolveTargetUrl, writeInitialContract, type LLMMessage, type QAContract } from "./index.js";
 
 const contract: QAContract = {
   app: {
@@ -28,6 +28,7 @@ const contract: QAContract = {
   testData: {},
   unknowns: []
 };
+const pristineExportedDefault = structuredClone(DEFAULT_CONTRACT);
 
 describe("resolveTargetUrl", () => {
   it("prefers an explicit URL", () => {
@@ -131,7 +132,76 @@ describe("writeInitialContract", () => {
   });
 
   afterEach(async () => {
+    Object.assign(DEFAULT_CONTRACT, structuredClone(pristineExportedDefault));
     await rm(dir, { recursive: true, force: true });
+  });
+
+  it("returns an independent deep copy for each no-config load", async () => {
+    const first = await loadContract(dir);
+    first.app.previewUrlSource = "manual";
+    first.defaults!.missionLimit = 99;
+    first.criticalFlows.push("poisoned flow");
+    first.dangerousActions.allowed.push("poisoned action");
+    first.testData.poisoned = "true";
+    first.unknowns.push("poisoned unknown");
+
+    const second = await loadContract(dir);
+
+    expect(second).toEqual(pristineExportedDefault);
+    expect(second).not.toBe(first);
+    expect(second.defaults).not.toBe(first.defaults);
+    expect(second.criticalFlows).not.toBe(first.criticalFlows);
+    expect(second.dangerousActions).not.toBe(first.dangerousActions);
+    expect(second.dangerousActions.allowed).not.toBe(first.dangerousActions.allowed);
+    expect(second.testData).not.toBe(first.testData);
+  });
+
+  it("isolates runtime and init defaults from nested mutations of the public compatibility object", async () => {
+    expect(Object.isFrozen(DEFAULT_CONTRACT)).toBe(false);
+    DEFAULT_CONTRACT.app.previewUrlSource = "manual";
+    DEFAULT_CONTRACT.defaults!.outputDir = ".preflight-scout/runs/export-poison";
+    DEFAULT_CONTRACT.defaults!.missionLimit = 99;
+    DEFAULT_CONTRACT.criticalFlows.push("export-poisoned flow");
+    DEFAULT_CONTRACT.dangerousActions.allowed.push("export-poisoned action");
+    DEFAULT_CONTRACT.testData.poisoned = "true";
+
+    const loaded = await loadContract(dir);
+    expect(loaded).toEqual(pristineExportedDefault);
+
+    const repoIndex = await indexRepository(dir);
+    const written = await writeInitialContract(dir, repoIndex, undefined, {
+      appUrl: "http://127.0.0.1:3000",
+      targetEnv: "local"
+    });
+
+    expect(written.defaults?.outputDir).toBe(".preflight-scout/runs/latest");
+    expect(written.defaults?.missionLimit).toBe(2);
+    expect(written.criticalFlows).not.toContain("export-poisoned flow");
+    expect(written.dangerousActions.allowed).not.toContain("export-poisoned action");
+    expect(written.testData).not.toHaveProperty("poisoned");
+  });
+
+  it("returns fresh default-derived structures for repeated partial-config loads", async () => {
+    await mkdir(path.join(dir, ".preflight-scout"), { recursive: true });
+    await writeFile(path.join(dir, ".preflight-scout", "config.yml"), "app:\n  name: fixture\n");
+
+    const first = await loadContract(dir);
+    first.defaults!.missionLimit = 99;
+    first.criticalFlows.push("partial-poisoned flow");
+    first.dangerousActions.allowed.push("partial-poisoned action");
+    first.testData.poisoned = "true";
+    first.unknowns.push("partial-poisoned unknown");
+
+    const second = await loadContract(dir);
+
+    expect(second.app.name).toBe("fixture");
+    expect(second.defaults?.missionLimit).toBe(2);
+    expect(second.criticalFlows).not.toContain("partial-poisoned flow");
+    expect(second.dangerousActions.allowed).not.toContain("partial-poisoned action");
+    expect(second.testData).not.toHaveProperty("poisoned");
+    expect(second.unknowns).not.toContain("partial-poisoned unknown");
+    expect(second.defaults).not.toBe(first.defaults);
+    expect(second.dangerousActions.allowed).not.toBe(first.dangerousActions.allowed);
   });
 
   it("writes config defaults, auth env names, and an env example from explicit init facts", async () => {
@@ -148,6 +218,7 @@ describe("writeInitialContract", () => {
     });
 
     const loaded = await loadContract(dir);
+    const context = await readFile(path.join(dir, ".preflight-scout", "context.md"), "utf8");
     const envExample = await readFile(path.join(dir, ".env.preflight-scout.example"), "utf8");
     const gitignore = await readFile(path.join(dir, ".gitignore"), "utf8");
 
@@ -158,6 +229,11 @@ describe("writeInitialContract", () => {
     expect(loaded.auth?.roles?.admin?.usernameEnv).toBe("PREFLIGHT_SCOUT_BROWSER_ADMIN_EMAIL");
     expect(loaded.auth?.roles?.admin?.storageState).toBe(".preflight-scout/auth/admin.json");
     expect(loaded.auth?.saveStorageState).toBe(".preflight-scout/auth/admin.json");
+    expect(context).toContain("## Repository Inventory");
+    expect(context).toContain("File inventory coverage: complete");
+    expect(context).toContain("empty\nclassification field means unclassified, not absent");
+    expect(context).not.toContain("## Detected Stack");
+    expect(context).not.toContain("none detected");
     expect(envExample).toContain("PREFLIGHT_SCOUT_BROWSER_ADMIN_EMAIL=");
     expect(envExample).toContain("PREFLIGHT_SCOUT_BROWSER_ADMIN_PASSWORD=");
     expect(envExample).toContain("OPENAI_API_KEY=");
@@ -171,6 +247,36 @@ describe("writeInitialContract", () => {
     expect(gitignore).toContain(".preflight-scout/approvals.local.yml");
     expect(gitignore).toContain(".env.preflight-scout.local");
     expect(gitignore).toContain("!.env.preflight-scout.example");
+  });
+
+  it("marks an incomplete generated context as non-exhaustive", async () => {
+    await writeFile(path.join(dir, "one.ts"), "export {};\n");
+    await writeFile(path.join(dir, "two.ts"), "export {};\n");
+    const repoIndex = await indexRepository(dir, { maxFiles: 1 });
+
+    expect(repoIndex.fileInventoryCoverage?.complete).toBe(false);
+    await writeInitialContract(dir, repoIndex);
+
+    const context = await readFile(path.join(dir, ".preflight-scout", "context.md"), "utf8");
+    expect(context).toContain("File inventory coverage: INCOMPLETE");
+    expect(context).toContain("this inventory is not exhaustive");
+  });
+
+  it("renders explicit unknown inventory coverage without inventing a file limit", async () => {
+    const repoIndex = await indexRepository(dir);
+    repoIndex.fileInventoryCoverage = {
+      state: "unknown",
+      includedFiles: repoIndex.files.length,
+      complete: false,
+      note: "Coverage metadata is unavailable."
+    };
+
+    await writeInitialContract(dir, repoIndex);
+
+    const context = await readFile(path.join(dir, ".preflight-scout", "context.md"), "utf8");
+    expect(context).toContain("File inventory coverage: unknown");
+    expect(context).toContain("do not treat this inventory as exhaustive");
+    expect(context).not.toContain("undefined-file limit");
   });
 
   it.each([
@@ -353,20 +459,26 @@ describe("writeInitialContract", () => {
       complete: false,
       note: `root=${dir}; token=${secret}; ${"detail ".repeat(400)}`
     };
-    let prompt = "";
+    let messages: LLMMessage[] = [];
     const llm = {
-      async completeJson(messages: unknown) {
-        prompt = JSON.stringify(messages);
+      async completeJson(input: LLMMessage[]) {
+        messages = input;
         return contract;
       }
     };
 
     await writeInitialContract(dir, repoIndex, llm);
 
+    const prompt = JSON.stringify(messages);
+    const userMessage = messages.find((message) => message.role === "user")?.content ?? "{}";
+    const payload = JSON.parse(userMessage) as Record<string, unknown>;
     expect(repoIndex.root).toBe(dir);
     expect(repoIndex.manifests["package.json"]).toContain(secret);
     expect(prompt).toContain("[REDACTED_SECRET]");
     expect(prompt).toContain("[REDACTED_REPO_ROOT]");
+    expect(payload).toHaveProperty("repositoryInventory");
+    expect(payload).not.toHaveProperty("repoIndex");
+    expect(prompt).toContain("mean unclassified, not absent");
     expect(prompt).not.toContain(dir);
     expect(prompt).not.toContain("customer-alice");
     expect(prompt).not.toContain(secret);
@@ -396,14 +508,14 @@ describe("writeInitialContract", () => {
 
     const serializedMessages = JSON.parse(prompt) as Array<{ role: string; content: string }>;
     const userMessage = serializedMessages.find((message) => message.role === "user")?.content ?? "{}";
-    const payload = JSON.parse(userMessage) as { repoIndex: RepoIndex };
-    expect(payload.repoIndex.fileInventoryCoverage).toMatchObject({
+    const payload = JSON.parse(userMessage) as { repositoryInventory: RepoIndex };
+    expect(payload.repositoryInventory.fileInventoryCoverage).toMatchObject({
       state: "unknown",
       complete: false,
       includedFiles: 1
     });
-    expect(payload.repoIndex.fileInventoryCoverage?.note).toContain("metadata is unavailable");
-    expect(payload.repoIndex.fileInventoryCoverage).not.toHaveProperty("maxFiles");
+    expect(payload.repositoryInventory.fileInventoryCoverage?.note).toContain("metadata is unavailable");
+    expect(payload.repositoryInventory.fileInventoryCoverage).not.toHaveProperty("maxFiles");
   });
 
   it.skipIf(process.platform === "win32")("refuses to read or write contract files through a symlinked .preflight-scout directory", async () => {

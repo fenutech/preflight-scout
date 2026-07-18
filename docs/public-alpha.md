@@ -120,6 +120,12 @@ preflight-scout analyze --base origin/main --head HEAD --open-report
 preflight-scout run --analysis-dir .preflight-scout/runs/latest --target frontend --env local --open-report
 ```
 
+The final command verifies the analysis manifest before execution. If the
+repository, commits, contract, exact installed Preflight Scout CLI/core package
+code/build, or reviewed artifacts changed,
+run `analyze` again and review the new output; old analysis directories are not
+upgraded in place.
+
 `init --no-llm` writes `.preflight-scout/config.yml` and the required ignore
 rules without making a model call. Review the generated contract before the
 browser run. Use `claude-exec` and `--agent claude` when Claude Code is the

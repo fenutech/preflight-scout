@@ -207,6 +207,55 @@ export interface MissionRunResult {
   };
 }
 
+export type AnalysisRuntimeEntrypoint = "core-api" | "cli" | "github-action";
+
+export interface AnalysisRuntimeIdentity {
+  entrypoint: AnalysisRuntimeEntrypoint;
+  digest: string;
+  coreDigest: string;
+}
+
+export type ExecutionRuntimeEntrypoint = "cli-browser" | "github-action-browser";
+
+export interface ExecutionRuntimeIdentity {
+  entrypoint: ExecutionRuntimeEntrypoint;
+  digest: string;
+}
+
+export interface AnalysisProvenance {
+  createdAt: string;
+  toolVersion: string;
+  analysisRuntime: AnalysisRuntimeIdentity;
+  schemaDigest: string;
+  repositoryDigest: string;
+  repositoryContextDigest: string;
+  baseCommit: string;
+  headCommit: string;
+  contractDigest: string;
+}
+
+export interface AnalysisManifest extends AnalysisProvenance {
+  kind: "preflight-scout-analysis";
+  schemaVersion: 2;
+  artifacts: {
+    impactMapSha256: string;
+    missionSha256: string;
+    reportMarkdownSha256: string;
+    reportHtmlSha256: string;
+    reportSummarySha256: string;
+    reportPdfSha256?: string;
+    currentResults?: {
+      path: "run-result.json" | "run-results.json";
+      sha256: string;
+      executionRuntime: ExecutionRuntimeIdentity;
+      evidence: Array<{
+        path: string;
+        sha256: string;
+      }>;
+    };
+  };
+}
+
 export type ProgressCallback = (message: string) => void;
 
 export interface HumanReportSummary {

@@ -15,6 +15,7 @@
     "test": "vitest run",
     "test:ci": "node scripts/run-test-suite.mjs unit",
     "test:browser": "node scripts/run-test-suite.mjs browser",
+    "test:windows-process-tree": "vitest run packages/core/src/process-tree.test.ts packages/core/src/llm.test.ts packages/agent-exec/src/index.test.ts",
     "playwright:install": "pnpm --filter @preflight-scout/browser-runner exec playwright install chromium",
     "playwright:install:ci": "pnpm --filter @preflight-scout/browser-runner exec playwright install --with-deps chromium",
     "install:source-cli": "node scripts/install-source-cli.mjs",
