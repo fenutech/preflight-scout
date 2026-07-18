@@ -1,7 +1,7 @@
 import type { ImpactMap, QAMission, QAContract } from "./types.js";
 import type { LLMClient, LLMMessage } from "./llm.js";
 import { QAMissionSchema } from "./schemas.js";
-import { appendRequiredUnknown, INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN } from "./impact-mapper.js";
+import { INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN } from "./impact-mapper.js";
 
 const MAX_MISSION_UNKNOWNS = 200;
 
@@ -14,18 +14,38 @@ export async function createQAMission(input: {
     throw new Error("Preflight Scout mission planning requires an LLM provider. Set PREFLIGHT_SCOUT_LLM_PROVIDER to openai/anthropic/gemini with an API key, or codex-exec/claude-exec/gemini-exec for a local agent CLI.");
   }
 
-  const mission = await input.llm.completeJson<QAMission>(missionPrompt(input.impactMap, input.contract), {
+  const generatedMission = await input.llm.completeJson<QAMission>(missionPrompt(input.impactMap, input.contract), {
     schema: QAMissionSchema,
     schemaName: "qa_mission"
   });
+  const mission = QAMissionSchema.parse(generatedMission);
+  const runnableCandidates = mission.automationCandidates.filter((candidate) => candidate.steps.some(isCompletionAssertion));
+  const omittedCandidates = mission.automationCandidates.filter((candidate) => !candidate.steps.some(isCompletionAssertion));
+  const requiredUnknowns = omittedCandidates.map((candidate) =>
+    `Automation candidate "${candidate.id}" was omitted because it has no reviewed assert_visible/assert_text completion step. Keep this check manual or regenerate it with an explicit reviewed assertion.`
+  );
   if (input.impactMap.unknowns.includes(INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN)) {
-    mission.unknowns = appendRequiredUnknown(
-      mission.unknowns,
-      INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN,
-      MAX_MISSION_UNKNOWNS
-    );
+    requiredUnknowns.push(INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN);
   }
-  return QAMissionSchema.parse(mission);
+  return QAMissionSchema.parse({
+    ...mission,
+    automationCandidates: runnableCandidates,
+    unknowns: appendRequiredUnknowns(mission.unknowns, requiredUnknowns)
+  });
+}
+
+function isCompletionAssertion(step: QAMission["automationCandidates"][number]["steps"][number]): boolean {
+  return step.action === "assert_visible" || step.action === "assert_text";
+}
+
+function appendRequiredUnknowns(unknowns: string[], required: string[]): string[] {
+  const uniqueRequired = [...new Set(required)].slice(0, MAX_MISSION_UNKNOWNS);
+  const requiredSet = new Set(uniqueRequired);
+  const providerUnknowns = [...new Set(unknowns)].filter((unknown) => !requiredSet.has(unknown));
+  return [
+    ...providerUnknowns.slice(0, MAX_MISSION_UNKNOWNS - uniqueRequired.length),
+    ...uniqueRequired
+  ];
 }
 
 function missionPrompt(impactMap: ImpactMap, contract: QAContract): LLMMessage[] {
@@ -75,6 +95,9 @@ Every goto, login, click, fill, or press step must set policyLabel to one exact 
 Every step id must be unique within its automation candidate.
 Browser steps must be executable but conservative: prefer labels, visible text, routes, and high-level observations.
 Keep each automation candidate narrow enough for an autonomous browser agent to finish in one short run. Prefer one primary user journey or one layout risk per candidate, roughly 3-6 meaningful actions. Split broad cross-page checks into multiple candidates instead of creating one long mission that samples many pages.
+Every automation candidate must include at least one explicit assert_visible or assert_text step with an exact reviewed target. These are the only completion assertions that can support a passed browser result.
+Use separate reviewed assertions for independently addressable completion claims instead of combining several claims into one observation.
+An observe step is discovery-only: it is not executable completion coverage, cannot be the only finish condition, and cannot prove that an element is absent from the accessibility tree.
 Each candidate should have a clear finish condition the browser agent can verify from the live page, screenshot, URL, visible text, console errors, or network failures.
 For click/fill/assert targets, use explicit target prefixes only:
 - css=<selector>
@@ -83,7 +106,7 @@ For click/fill/assert targets, use explicit target prefixes only:
 - testid=<data-testid>
 - role=<role>|name=<accessible name>
 
-Do not rely on the runner to guess locators. If you cannot identify a target from repository evidence, create an observe step so the live browser agent can discover the control from the rendered page.`
+Do not rely on the runner to guess locators. If you cannot identify a target from repository evidence, use an observe step only to discover the control, then add an exact reviewed assertion. If no safe completion assertion can be planned from repository evidence, keep the check in manualChecklist or unknowns instead of emitting an automation candidate.`
     },
     {
       role: "user",

@@ -6,6 +6,13 @@ All notable changes to Preflight Scout are documented here. This project follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Kept generated browser missions aligned with the fail-closed runner by
+  requiring reviewed `assert_visible` or `assert_text` completion evidence,
+  omitting unassertable candidates with an explicit manual-review reason, and
+  rejecting directly supplied assertionless missions before browser launch.
+
 ## [0.1.5] - 2026-07-18
 
 ### Security

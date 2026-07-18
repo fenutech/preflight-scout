@@ -555,7 +555,8 @@ If a previous fill action passed and the same field is still visibly filled, mov
 For login missions, authenticate the configured existing user only from the reviewed mission startPath. Do not discover or substitute another login URL. After entering a credential field successfully, use the observed page state to move toward the next required credential, safe submit action, and exact reviewed signed-in assertion instead of repeating the same completed action.
 Every goto, click, fill, or press must name the exact reviewed missionStepId it implements. For non-login steps, its target must match the reviewed target; do not substitute an unrelated live control. Login steps may discover live login controls, but remain bound to the exact reviewed login step id and contract login permission.
 Assert actions must name an exact reviewed assert_visible/assert_text missionStepId. Omit target and value for assert actions: the runner binds and executes the reviewed target and expected text, not an LLM substitute. finish_pass is refused until every executable reviewed step is covered and at least one reviewed assertion passes. Login missions additionally require the exact configured signed-in marker, a safe credential-form submission, a changed cookie/storage session, and disappearance of the credential form.
-Before returning finish_fail because an expected action is missing, carefully inspect currentObservation.text, currentObservation.interactive, and the screenshot. Do not claim an element is absent when it appears in the observation.
+currentObservation.interactive is a bounded DOM locator inventory from the rendered document, not an accessibility-tree dump. Presence means an element was rendered for locator use at capture time, but does not prove accessibility-tree exposure; omission cannot prove absence from the accessibility tree. If the mission requires accessibility-tree evidence that an exact reviewed assertion cannot establish, return blocked and leave that check for manual assistive-technology review.
+Before returning finish_fail because an expected action is missing, carefully inspect currentObservation.text, currentObservation.interactive, and the screenshot. Do not claim an element is absent when it appears in the observation, and do not infer accessibility-tree absence from omission alone.
 If a relevant action may be below the fold, scroll or use another visible navigation action before failing. Fail only when the live app clearly contradicts the mission goal or a required assertion remains false after a reasonable browser attempt.
 Do not use hardcoded scripts. Navigate like a human tester using the live page observation and attached screenshot.`
     },
@@ -609,6 +610,10 @@ function validateBrowserMissionConfiguration(
   contract: QAContract,
   saveStorageState: string | undefined
 ): string | undefined {
+  const reviewedAssertions = mission.steps.filter((step) => step.action === "assert_visible" || step.action === "assert_text");
+  if (!reviewedAssertions.length) {
+    return "Browser missions must include at least one reviewed assert_visible/assert_text completion step; observe steps are discovery-only and cannot support a pass claim.";
+  }
   const loginSteps = mission.steps.filter((step) => step.action === "login");
   if (!loginSteps.length) return undefined;
   if (!mission.role) return "Login missions must declare the exact configured auth role.";

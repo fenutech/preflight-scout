@@ -103,6 +103,15 @@ class BlockedLLM implements LLMClient {
   }
 }
 
+class UnexpectedDecisionLLM implements LLMClient {
+  calls = 0;
+
+  async completeJson<T>(_messages: LLMMessage[], _options: StructuredJsonOptions<T>): Promise<T> {
+    this.calls += 1;
+    throw new Error("The browser LLM must not run for an invalid mission.");
+  }
+}
+
 class CapturingBlockedLLM implements LLMClient {
   lastPrompt = "";
 
@@ -410,7 +419,12 @@ describe("runBrowserMission", () => {
       risk: "high",
       startPath: "/hostile-large",
       reason: ["Exercise hostile page bounds."],
-      steps: []
+      steps: [{
+        id: "verify-safe-control",
+        instruction: "Verify the bounded fixture control.",
+        action: "assert_visible",
+        target: "css=#large-control"
+      }]
     }, {
       baseUrl,
       contract: {
@@ -430,6 +444,9 @@ describe("runBrowserMission", () => {
     expect(result.status).toBe("blocked");
     expect(llm.lastPrompt).not.toContain(embeddedSecret);
     expect(llm.lastPrompt).toContain("[REDACTED_SECRET]");
+    expect(llm.lastPrompt).toContain("bounded DOM locator inventory from the rendered document");
+    expect(llm.lastPrompt).toContain("not an accessibility-tree dump");
+    expect(llm.lastPrompt).toContain("omission cannot prove absence from the accessibility tree");
     expect(llm.lastPrompt.length).toBeLessThan(50_000);
     expect(llm.lastPrompt).not.toContain("z".repeat(1_000));
     const screenshotPath = result.artifacts.find((artifact) => artifact.endsWith(".png"));
@@ -465,6 +482,58 @@ describe("runBrowserMission", () => {
     });
     expect(immediate.status).toBe("blocked");
     expect(immediate.results.at(-1)?.message).toContain("not successfully covered");
+  });
+
+  it("rejects an assertionless reviewed mission before browser launch or an LLM decision", async () => {
+    const llm = new UnexpectedDecisionLLM();
+    const runOutput = path.join(outputDir, "assertionless-mission");
+    const result = await runBrowserMission({
+      id: "promo-valid-to-expired",
+      title: "Replace a valid discount with an expired coupon",
+      risk: "high",
+      startPath: "/",
+      reason: ["Verify the pricing-sensitive transition."],
+      steps: [{
+        id: "transition-fill",
+        instruction: "Enter the expired coupon.",
+        action: "fill",
+        policyLabel: "fill",
+        target: "testid=promo-code",
+        value: "EXPIRED10"
+      }, {
+        id: "transition-click",
+        instruction: "Apply the expired coupon.",
+        action: "click",
+        policyLabel: "click",
+        target: "testid=apply-promo"
+      }, {
+        id: "transition-finish",
+        instruction: "Confirm the alert, restored total, console, and network state.",
+        action: "observe",
+        target: "testid=promo-error",
+        expected: "The expiration alert and Total: $100.00 are visible with no console or network errors."
+      }]
+    }, {
+      baseUrl,
+      contract: basicContract(),
+      llm,
+      outputDir: runOutput,
+      headless: true,
+      maxTurns: 6
+    });
+
+    expect(result).toEqual({
+      missionId: "promo-valid-to-expired",
+      status: "blocked",
+      results: [{
+        stepId: "mission-config",
+        status: "blocked",
+        message: "Browser missions must include at least one reviewed assert_visible/assert_text completion step; observe steps are discovery-only and cannot support a pass claim."
+      }],
+      artifacts: []
+    });
+    expect(llm.calls).toBe(0);
+    await expect(stat(runOutput)).rejects.toThrow();
   });
 
   it("binds live assertion fields to the reviewed target and expected text", async () => {
@@ -521,6 +590,11 @@ describe("runBrowserMission", () => {
         instruction: "Use the single reviewed Apply control.",
         action: "click",
         policyLabel: "click",
+        target: "text=Apply"
+      }, {
+        id: "verify-page-after-action",
+        instruction: "Verify the page remains available.",
+        action: "assert_visible",
         target: "text=Apply"
       }]
     }, {
@@ -681,7 +755,7 @@ describe("runBrowserMission", () => {
       risk: "medium",
       startPath: "/",
       reason: ["Validate authenticated surface."],
-      steps: []
+      steps: [reviewedCompletionAssertion()]
     }, {
       baseUrl,
       contract,
@@ -724,7 +798,10 @@ describe("runBrowserMission", () => {
       risk: "high",
       startPath: "/",
       reason: ["Auth requires deterministic proof."],
-      steps: [{ id: "login", instruction: "Login.", action: "login", policyLabel: "login" }]
+      steps: [
+        { id: "login", instruction: "Login.", action: "login", policyLabel: "login" },
+        reviewedCompletionAssertion()
+      ]
     }, {
       baseUrl,
       contract: {
@@ -895,7 +972,7 @@ describe("runBrowserMission", () => {
         action: "approval_gate",
         target: "send_email",
         requiresApproval: true
-      }]
+      }, reviewedCompletionAssertion()]
     }, {
       baseUrl,
       contract,
@@ -932,7 +1009,7 @@ describe("runBrowserMission", () => {
         action: "approval_gate",
         value: "EXPIRED10",
         requiresApproval: true
-      }]
+      }, reviewedCompletionAssertion()]
     }, {
       baseUrl,
       contract,
@@ -971,7 +1048,7 @@ describe("runBrowserMission", () => {
         policyLabel: "send_email",
         target: "role=button|name=Send email",
         requiresApproval: true
-      }]
+      }, reviewedCompletionAssertion()]
     }, {
       baseUrl,
       contract,
@@ -1118,7 +1195,7 @@ describe("runBrowserMission", () => {
       risk: "medium",
       startPath: "/",
       reason: ["Create reusable storage state."],
-      steps: []
+      steps: [reviewedCompletionAssertion()]
     }, {
       baseUrl,
       contract,
@@ -1158,7 +1235,7 @@ describe("runBrowserMission", () => {
         action: "goto",
         policyLabel: "navigate",
         target
-      }]
+      }, reviewedCompletionAssertion()]
     }, {
       baseUrl,
       contract: basicContract(),
@@ -1192,7 +1269,7 @@ describe("runBrowserMission", () => {
       risk: "high",
       startPath,
       reason: ["Exercise mission input validation."],
-      steps: []
+      steps: [reviewedCompletionAssertion()]
     }, {
       baseUrl,
       contract: basicContract(),
@@ -1313,7 +1390,7 @@ describe("runBrowserMission", () => {
         action: "click",
         policyLabel: "click",
         target
-      }]
+      }, reviewedCompletionAssertion()]
     }, {
       baseUrl,
       contract: basicContract(),
@@ -1358,7 +1435,7 @@ describe("runBrowserMission", () => {
         policyLabel: "press",
         target: "css=#press-target",
         value: "Enter"
-      }]
+      }, reviewedCompletionAssertion()]
     }, {
       baseUrl,
       contract: basicContract(),
@@ -1397,7 +1474,7 @@ describe("runBrowserMission", () => {
           policyLabel: "fill",
           target: "testid=promo-code",
           valueEnv: "OPENAI_API_KEY"
-        }]
+        }, reviewedCompletionAssertion()]
       }, {
         baseUrl,
         contract,
@@ -1446,7 +1523,7 @@ describe("runBrowserMission", () => {
           policyLabel: "fill",
           target: "testid=promo-code",
           valueEnv: "PREFLIGHT_SCOUT_BROWSER_ADMIN_EMAIL"
-        }]
+        }, reviewedCompletionAssertion()]
       }, {
         baseUrl,
         contract,
@@ -1479,5 +1556,14 @@ function basicContract(): QAContract {
     dangerousActions: { allowed: ["navigate", "click", "fill", "press"], requireApproval: [], forbidden: [] },
     testData: {},
     unknowns: []
+  };
+}
+
+function reviewedCompletionAssertion(): QAFlowMission["steps"][number] {
+  return {
+    id: "verify-reviewed-fixture",
+    instruction: "Verify the reviewed fixture remains available.",
+    action: "assert_visible",
+    target: "text=Checkout"
   };
 }
