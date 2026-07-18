@@ -8,6 +8,7 @@ const MAX_BODY_TEXT_CHARS = 8_000;
 const MAX_URL_CHARS = 2_048;
 const MAX_TITLE_CHARS = 512;
 const MAX_INTERACTIVE_ELEMENTS = 80;
+const MAX_INTERACTIVE_CANDIDATES = 1_000;
 const MAX_INTERACTIVE_VALUE_CHARS = 256;
 const MAX_FULL_PAGE_DIMENSION = 10_000;
 const MAX_FULL_PAGE_PIXELS = 25_000_000;
@@ -32,15 +33,15 @@ export async function observe(page: Page, consoleErrors: string[], networkErrors
     width: document.documentElement.scrollWidth,
     height: document.documentElement.scrollHeight
   }));
-  const interactive = await page.evaluate(({ count, valueLimit }) => {
+  const interactive = await page.evaluate(({ candidateCount, count, valueLimit }) => {
     const clip = (value: string | null | undefined, limit = valueLimit): string | undefined => {
       const trimmed = value?.trim();
       return trimmed ? trimmed.slice(0, limit) : undefined;
     };
     const isRendered = (element: Element): boolean => {
+      if (element instanceof HTMLElement && element.hidden) return false;
       const style = window.getComputedStyle(element);
-      if ((element instanceof HTMLElement && element.hidden)
-        || style.display === "none"
+      if (style.display === "none"
         || style.visibility === "hidden"
         || style.visibility === "collapse") {
         return false;
@@ -48,9 +49,15 @@ export async function observe(page: Page, consoleErrors: string[], networkErrors
       const bounds = element.getBoundingClientRect();
       return bounds.width > 0 && bounds.height > 0;
     };
-    const nodes = [...document.querySelectorAll("a,button,input,textarea,select,[role],[data-testid]")]
-      .filter(isRendered)
-      .slice(0, count);
+    const candidates = document.querySelectorAll("a,button,input,textarea,select,[role],[data-testid]");
+    const nodes: Element[] = [];
+    // Bound hostile candidate floods before per-node style/layout work while
+    // retaining enough headroom for ordinary hidden markup before a control.
+    const scanLimit = Math.min(candidates.length, candidateCount);
+    for (let index = 0; index < scanLimit && nodes.length < count; index += 1) {
+      const candidate = candidates.item(index);
+      if (isRendered(candidate)) nodes.push(candidate);
+    }
     return nodes.map((node) => {
       const element = node as HTMLElement;
       const input = node as HTMLInputElement;
@@ -64,7 +71,11 @@ export async function observe(page: Page, consoleErrors: string[], networkErrors
         testid: clip(element.getAttribute("data-testid"))
       };
     });
-  }, { count: MAX_INTERACTIVE_ELEMENTS, valueLimit: MAX_INTERACTIVE_VALUE_CHARS });
+  }, {
+    candidateCount: MAX_INTERACTIVE_CANDIDATES,
+    count: MAX_INTERACTIVE_ELEMENTS,
+    valueLimit: MAX_INTERACTIVE_VALUE_CHARS
+  });
 
   return {
     url: redactText(page.url().slice(0, MAX_URL_CHARS)),

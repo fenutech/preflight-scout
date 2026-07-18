@@ -308,6 +308,42 @@ describe("runBrowserMission", () => {
         </body>`);
         return;
       }
+      if (req.url === "/observation-layout-bound") {
+        const hiddenFlood = Array.from({ length: 10_000 }, (_, index) =>
+          `<span role="status" data-testid="layout-flood-${index}" style="display:block;width:0;height:0;overflow:hidden"></span>`
+        ).join("");
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end(`<!doctype html><body>
+          ${hiddenFlood}
+          <button data-testid="beyond-layout-flood">Control beyond the hostile layout flood</button>
+          <script>
+            let layoutChecks = 0;
+            let resetPending = false;
+            const recordLayoutCheck = () => {
+              if (!resetPending) {
+                resetPending = true;
+                setTimeout(() => {
+                  layoutChecks = 0;
+                  resetPending = false;
+                }, 0);
+              }
+              layoutChecks += 1;
+              if (layoutChecks > 2100) throw new Error("UNBOUNDED_OBSERVATION_LAYOUT_SCAN");
+            };
+            const getComputedStyle = window.getComputedStyle.bind(window);
+            window.getComputedStyle = (...args) => {
+              recordLayoutCheck();
+              return getComputedStyle(...args);
+            };
+            const getBoundingClientRect = Element.prototype.getBoundingClientRect;
+            Element.prototype.getBoundingClientRect = function () {
+              recordLayoutCheck();
+              return getBoundingClientRect.call(this);
+            };
+          </script>
+        </body>`);
+        return;
+      }
       if (req.url === "/duplicate-control") {
         res.writeHead(200, { "content-type": "text/html" });
         res.end(`<!doctype html><body>
@@ -601,6 +637,36 @@ describe("runBrowserMission", () => {
       text: "VISIBLE_CONTROL_SENTINEL"
     }));
     expect(JSON.stringify(finalObservation)).not.toContain("HIDDEN_CROWD_SENTINEL");
+  });
+
+  it("bounds rendered candidate layout checks under a large hidden-node flood", async () => {
+    const llm = new CapturingBlockedLLM();
+    const result = await runBrowserMission({
+      id: "observation-layout-bound",
+      title: "Bound rendered candidate checks",
+      risk: "high",
+      startPath: "/observation-layout-bound",
+      reason: ["Exercise hostile DOM observation bounds."],
+      steps: []
+    }, {
+      baseUrl,
+      contract: {
+        app: { name: "Observation bound fixture" },
+        criticalFlows: [],
+        sensitiveAreas: [],
+        dangerousActions: { allowed: [], requireApproval: [], forbidden: [] },
+        testData: {},
+        unknowns: []
+      },
+      llm,
+      outputDir: path.join(outputDir, "observation-layout-bound"),
+      headless: true,
+      maxTurns: 1
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(llm.lastPrompt).toContain("Control beyond the hostile layout flood");
+    expect(result.evidence?.finalObservationPath).toContain("final-observation.json");
   });
 
   it("refuses immediate finish_pass before the reviewed assertion is covered", async () => {
