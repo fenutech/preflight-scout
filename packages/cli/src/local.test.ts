@@ -260,6 +260,32 @@ describe("loadEnvFile", () => {
       directory: path.join(dir, "preflight-output"),
       boundary: dir
     });
+    await expect(lstat(path.join(dir, "preflight-output"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("conservatively rejects a non-directory Git pattern for a missing output", async () => {
+    await writeFile(path.join(dir, ".gitignore"), "preflight-*\n");
+
+    await expect(resolveAnalysisOutputDir(
+      dir,
+      "preflight-output",
+      undefined
+    )).rejects.toThrow("must be untracked and ignored by Git");
+    await expect(lstat(path.join(dir, "preflight-output"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("accepts a non-ASCII directory exclusion without materializing the output", async () => {
+    await writeFile(path.join(dir, ".gitignore"), "preflight-ü/\n");
+
+    await expect(resolveAnalysisOutputDir(
+      dir,
+      "preflight-ü",
+      undefined
+    )).resolves.toEqual({
+      directory: path.join(dir, "preflight-ü"),
+      boundary: dir
+    });
+    await expect(lstat(path.join(dir, "preflight-ü"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("accepts a directory exclusion even when a later child negation cannot take effect", async () => {
@@ -294,6 +320,21 @@ describe("loadEnvFile", () => {
       "preflight-output",
       undefined
     )).rejects.toThrow("must be untracked and ignored by Git");
+    await expect(lstat(path.join(dir, "preflight-output"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("rejects a missing output whose directory negation would activate after materialization", async () => {
+    await writeFile(
+      path.join(dir, ".gitignore"),
+      "*\n!.gitignore\n!preflight-output/\n!preflight-output/report.md\n"
+    );
+
+    await expect(resolveAnalysisOutputDir(
+      dir,
+      "preflight-output",
+      undefined
+    )).rejects.toThrow("must be untracked and ignored by Git");
+    await expect(lstat(path.join(dir, "preflight-output"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("rejects an explicit in-repository output directory containing tracked files", async () => {

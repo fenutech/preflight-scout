@@ -485,17 +485,6 @@ async function assertExplicitRepoOutputDirectoryIsSafe(root: string, outputDir: 
     throw explicitRepoOutputPathError("the repository root cannot be used as an artifact directory");
   }
 
-  // Git needs the path to exist as a directory to distinguish `output/`
-  // from a contents-only rule such as `output/*`. Materialize the requested
-  // directory before the ignore check, then re-check the filesystem boundary
-  // so a raced symlink or non-directory cannot become trusted.
-  try {
-    await fs.mkdir(outputDir, { recursive: true });
-    await assertPathHasNoSymlinks(root, outputDir, { allowMissing: false, leafType: "directory" });
-  } catch {
-    throw explicitRepoOutputPathError("it traverses an unsafe symbolic-link or non-directory path");
-  }
-
   try {
     const git = await createTrustedGit({ targetRoot: root });
     const { stdout } = await git.exec(["rev-parse", "--is-inside-work-tree"], { cwd: root });
@@ -503,11 +492,7 @@ async function assertExplicitRepoOutputDirectoryIsSafe(root: string, outputDir: 
     if (await gitPredicate(git, root, ["--literal-pathspecs", "ls-files", "--error-unmatch", "--", relativePath])) {
       throw explicitRepoOutputPathError("it must be untracked and ignored by Git");
     }
-    // Require Git to exclude the directory itself, not merely a synthetic
-    // trailing-slash path. Contents-only patterns can match `dir/` while a
-    // later negation re-includes generated artifacts such as report.md. Once
-    // the parent directory itself is excluded, Git cannot re-include children.
-    if (!await gitPredicate(git, root, ["check-ignore", "--quiet", "--", relativePath])) {
+    if (!await gitProvesDirectoryIsExcluded(git, root, relativePath)) {
       throw explicitRepoOutputPathError("it must be untracked and ignored by Git");
     }
   } catch (error) {
@@ -516,6 +501,41 @@ async function assertExplicitRepoOutputDirectoryIsSafe(root: string, outputDir: 
     }
     throw explicitRepoOutputPathError("Git could not prove that it is untracked and ignored");
   }
+}
+
+async function gitProvesDirectoryIsExcluded(git: TrustedGit, root: string, relativePath: string): Promise<boolean> {
+  const directoryPath = `${relativePath}/`;
+  const directoryMatch = await positiveGitIgnoreMatch(git, root, directoryPath);
+  if (!directoryMatch) return false;
+
+  // Only a winning directory-only pattern is sufficient. Broad file patterns
+  // such as `output-*` can match a missing path, then lose after a later
+  // directory negation becomes applicable. Contents-only rules such as
+  // `output/*` likewise do not exclude the parent directory itself.
+  return directoryMatch.endsWith("/");
+}
+
+async function positiveGitIgnoreMatch(
+  git: TrustedGit,
+  root: string,
+  pathname: string
+): Promise<string | undefined> {
+  if (!await gitPredicate(git, root, ["check-ignore", "--quiet", "--no-index", "--", pathname])) {
+    return undefined;
+  }
+
+  // Verbose output is `<source>:<line>:<pattern>\t<path>`. We only accept a
+  // match whose pathname suffix is exactly the requested spelling. Match the
+  // known suffix instead of parsing source/pattern fields; unusual quoted path
+  // output is rejected conservatively.
+  const { stdout } = await git.exec(
+    ["-c", "core.quotePath=false", "check-ignore", "--verbose", "--no-index", "--", pathname],
+    { cwd: root, maxBuffer: 64 * 1024 }
+  );
+  const output = stdout.replace(/\r?\n$/, "");
+  const pathSuffix = `\t${pathname}`;
+  if (!output.endsWith(pathSuffix)) return undefined;
+  return output.slice(0, -pathSuffix.length);
 }
 
 function parseEnvLine(line: string): [string, string] | undefined {
