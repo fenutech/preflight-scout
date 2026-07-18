@@ -647,7 +647,12 @@ describe("runBrowserMission", () => {
       risk: "high",
       startPath: "/observation-layout-bound",
       reason: ["Exercise hostile DOM observation bounds."],
-      steps: []
+      steps: [{
+        id: "verify-beyond-layout-flood",
+        instruction: "Verify the visible control after the hostile candidate flood.",
+        action: "assert_visible",
+        target: "testid=beyond-layout-flood"
+      }]
     }, {
       baseUrl,
       contract: {
