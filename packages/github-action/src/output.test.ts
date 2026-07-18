@@ -1,10 +1,11 @@
 import {
+  createTrustedGit,
   createAnalysisEvidenceDirectory,
   writeAnalysisArtifacts,
   type ImpactMap,
   type QAMission
 } from "@preflight-scout/core";
-import { access, mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
+import { access, lstat, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -17,6 +18,9 @@ describe("resolveActionOutputDirectory", () => {
   beforeEach(async () => {
     workspace = await mkdtemp(path.join(tmpdir(), "preflight-scout-action-workspace-"));
     cleanup.push(workspace);
+    const git = await createTrustedGit({ targetRoot: workspace });
+    await git.exec(["init", "--quiet"], { cwd: workspace });
+    await writeFile(path.join(workspace, ".gitignore"), ".preflight-scout/\n");
   });
 
   afterEach(async () => {
@@ -35,6 +39,43 @@ describe("resolveActionOutputDirectory", () => {
       directory: path.join(canonicalWorkspace, ".preflight-scout", "runs", "github-action"),
       boundary: canonicalWorkspace
     });
+    await expect(lstat(path.join(workspace, ".preflight-scout"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("rejects a repository-local Action output that Git does not ignore", async () => {
+    await expect(resolveActionOutputDirectory(
+      workspace,
+      "preflight-report"
+    )).rejects.toThrow("must be untracked and ignored by Git as a directory");
+    await expect(lstat(path.join(workspace, "preflight-report"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("rejects the repository root as an Action output directory", async () => {
+    await expect(resolveActionOutputDirectory(workspace, "."))
+      .rejects.toThrow("must be untracked and ignored by Git as a directory");
+  });
+
+  it("rejects contents-only ignores that re-include a generated report", async () => {
+    await writeFile(
+      path.join(workspace, ".gitignore"),
+      ".preflight-scout/\npreflight-report/*\n!preflight-report/report.md\n"
+    );
+
+    await expect(resolveActionOutputDirectory(workspace, "preflight-report"))
+      .rejects.toThrow("must be untracked and ignored by Git as a directory");
+    await expect(lstat(path.join(workspace, "preflight-report"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("rejects a tracked repository-local Action output even when a directory rule ignores it", async () => {
+    const trackedOutput = path.join(workspace, "tracked-output");
+    await mkdir(trackedOutput);
+    await writeFile(path.join(trackedOutput, "report.md"), "tracked\n");
+    await writeFile(path.join(workspace, ".gitignore"), ".preflight-scout/\ntracked-output/\n");
+    const git = await createTrustedGit({ targetRoot: workspace });
+    await git.exec(["add", "--force", "--", "tracked-output/report.md"], { cwd: workspace });
+
+    await expect(resolveActionOutputDirectory(workspace, "tracked-output"))
+      .rejects.toThrow("must be untracked and ignored by Git as a directory");
   });
 
   it("derives one canonical boundary for an external Action output and every artifact write", async () => {
@@ -89,5 +130,16 @@ describe("resolveActionOutputDirectory", () => {
       workspace,
       path.join(workspace, ".preflight-scout", "runs", "github-action")
     )).rejects.toThrow("unsafe repository-local Action output directory");
+  });
+
+  it.skipIf(process.platform === "win32")("applies repository policy when an external alias resolves into the workspace", async () => {
+    const externalRoot = await mkdtemp(path.join(tmpdir(), "preflight-scout-action-alias-"));
+    cleanup.push(externalRoot);
+    const alias = path.join(externalRoot, "workspace-link");
+    await symlink(workspace, alias);
+
+    await expect(resolveActionOutputDirectory(workspace, path.join(alias, "preflight-report")))
+      .rejects.toThrow("must be untracked and ignored by Git as a directory");
+    await expect(lstat(path.join(workspace, "preflight-report"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

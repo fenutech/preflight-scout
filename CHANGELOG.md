@@ -60,9 +60,9 @@ All notable changes to Preflight Scout are documented here. This project follows
   accepted as the current report.
 - Preserved explicit external artifact directories through a separate canonical
   trust boundary, including the standard macOS `/tmp` filesystem alias.
-- Required explicit repository-local artifact directories to be excluded by
-  Git as directories, so contents-only ignore rules cannot re-include generated
-  reports and invalidate the reviewed repository context.
+- Required explicit repository-local CLI and GitHub Action artifact directories
+  to be excluded by Git as directories, so contents-only ignore rules cannot
+  re-include generated reports and invalidate the reviewed repository context.
 - Bound `replay` to the reviewed analysis manifest instead of accepting a loose
   mission file.
 - Isolated internal QA contract defaults from mutations of the public
