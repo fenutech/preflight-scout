@@ -18,6 +18,10 @@ All notable changes to Preflight Scout are documented here. This project follows
   same-origin DOM before pass evidence or authenticated state is persisted.
 - Preserved all-manual analyses without starting an agent, browser, or MCP
   runtime and without claiming that browser evidence was collected.
+- Excluded non-rendered DOM nodes from browser observation locator inventories
+  before applying the evidence limit, preventing hidden alerts or hidden-node
+  floods from being mistaken for visible browser state or crowding out usable
+  controls.
 
 ## [0.1.5] - 2026-07-18
 

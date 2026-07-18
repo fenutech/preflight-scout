@@ -114,14 +114,62 @@ class UnexpectedDecisionLLM implements LLMClient {
 
 class CapturingBlockedLLM implements LLMClient {
   lastPrompt = "";
+  lastPayload?: { currentObservation?: { interactive?: Array<{ testid?: string; text?: string }> } };
 
   async completeJson<T>(messages: LLMMessage[], options: StructuredJsonOptions<T>): Promise<T> {
     if (options.schemaName !== "browser_decision") throw new Error(`Unexpected schema in capture LLM: ${options.schemaName}`);
     this.lastPrompt = messages.map((message) => message.content).join("\n");
+    const payload = messages.at(-1)?.content.split("\n\nThe current browser screenshot")[0] ?? "{}";
+    this.lastPayload = JSON.parse(payload) as typeof this.lastPayload;
     return {
       thought: "Stop after bounded observation.",
       action: "blocked",
       reason: "Observation bound captured."
+    } as T;
+  }
+}
+
+class ObservationVisibilityLLM implements LLMClient {
+  prompts: string[] = [];
+
+  async completeJson<T>(messages: LLMMessage[], options: StructuredJsonOptions<T>): Promise<T> {
+    if (options.schemaName !== "browser_decision") throw new Error(`Unexpected schema in observation visibility LLM: ${options.schemaName}`);
+    this.prompts.push(messages.map((message) => message.content).join("\n"));
+    if (this.prompts.length === 1) {
+      return {
+        thought: "Reveal the reviewed alert.",
+        action: "click",
+        missionStepId: "reveal-alert",
+        target: "testid=reveal-alert",
+        reason: "Exercise the reviewed visibility transition."
+      } as T;
+    }
+    return {
+      thought: "Stop after capturing the visible alert.",
+      action: "blocked",
+      reason: "Observation visibility captured."
+    } as T;
+  }
+}
+
+class InventoryFailureFinishPassLLM implements LLMClient {
+  calls = 0;
+
+  async completeJson<T>(_messages: LLMMessage[], options: StructuredJsonOptions<T>): Promise<T> {
+    if (options.schemaName !== "browser_decision") throw new Error(`Unexpected schema in inventory failure LLM: ${options.schemaName}`);
+    this.calls += 1;
+    if (this.calls === 1) {
+      return {
+        thought: "The reviewed text is visible.",
+        action: "assert",
+        missionStepId: "verify-inventory-page",
+        reason: "Verify the reviewed page text."
+      } as T;
+    }
+    return {
+      thought: "The reviewed assertion passed.",
+      action: "finish_pass",
+      reason: "The mission has enough evidence to pass."
     } as T;
   }
 }
@@ -264,6 +312,130 @@ describe("runBrowserMission", () => {
         </body></html>`);
         return;
       }
+      if (req.url === "/observation-visibility") {
+        const hiddenCrowd = Array.from({ length: 85 }, (_, index) =>
+          `<p hidden role="status" data-testid="hidden-crowd-${index}">HIDDEN_CROWD_SENTINEL_${index}</p>`
+        ).join("");
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end(`<!doctype html><body>
+          ${hiddenCrowd}
+          <div hidden><button data-testid="hidden-by-ancestor">HIDDEN_ANCESTOR_SENTINEL</button></div>
+          <button style="display:none" data-testid="hidden-by-display">HIDDEN_DISPLAY_SENTINEL</button>
+          <button style="visibility:hidden" data-testid="hidden-by-visibility">HIDDEN_VISIBILITY_SENTINEL</button>
+          <input type="hidden" data-testid="hidden-input-sentinel" />
+          <p data-testid="promo-error" role="alert" hidden>HIDDEN_ALERT_SENTINEL</p>
+          <button data-testid="reveal-alert">VISIBLE_CONTROL_SENTINEL</button>
+          <script>
+            document.querySelector('[data-testid="reveal-alert"]').addEventListener("click", () => {
+              document.querySelector('[data-testid="promo-error"]').hidden = false;
+            });
+          </script>
+        </body>`);
+        return;
+      }
+      if (req.url === "/observation-layout-bound") {
+        // Stay above the 1,000-candidate visibility-check budget without
+        // making fixture HTML generation dominate the bounded-layout test.
+        const hiddenFlood = Array.from({ length: 1_250 }, (_, index) =>
+          `<span role="status" data-testid="layout-flood-${index}" style="display:block;width:0;height:0;overflow:hidden"></span>`
+        ).join("");
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end(`<!doctype html><body>
+          ${hiddenFlood}
+          <button data-testid="beyond-layout-flood">Control beyond the hostile layout flood</button>
+          <output data-testid="layout-check-count">MAX_LAYOUT_CHECKS:0</output>
+          <script>
+            let layoutChecks = 0;
+            let maxLayoutChecks = 0;
+            let resetPending = false;
+            const counter = document.querySelector('[data-testid="layout-check-count"]');
+            const recordLayoutCheck = () => {
+              if (!resetPending) {
+                resetPending = true;
+                setTimeout(() => {
+                  layoutChecks = 0;
+                  resetPending = false;
+                }, 0);
+              }
+              layoutChecks += 1;
+              maxLayoutChecks = Math.max(maxLayoutChecks, layoutChecks);
+              counter.textContent = 'MAX_LAYOUT_CHECKS:' + maxLayoutChecks;
+            };
+            const getComputedStyle = window.getComputedStyle.bind(window);
+            window.getComputedStyle = (...args) => {
+              recordLayoutCheck();
+              return getComputedStyle(...args);
+            };
+            const getBoundingClientRect = Element.prototype.getBoundingClientRect;
+            Element.prototype.getBoundingClientRect = function () {
+              recordLayoutCheck();
+              return getBoundingClientRect.call(this);
+            };
+          </script>
+        </body>`);
+        return;
+      }
+      if (req.url === "/observation-hostile-visibility-api") {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end(`<!doctype html><body>
+          <button data-testid="style-throw">Untrusted style control</button>
+          <button data-testid="bounds-throw">Untrusted bounds control</button>
+          <button data-testid="safe-visibility-control">Safe visibility control</button>
+          <script>
+            const getComputedStyle = window.getComputedStyle.bind(window);
+            window.getComputedStyle = (element, ...args) => {
+              if (element.dataset?.testid === 'style-throw') throw new Error('PAGE_STYLE_OVERRIDE');
+              return getComputedStyle(element, ...args);
+            };
+            const getBoundingClientRect = Element.prototype.getBoundingClientRect;
+            Element.prototype.getBoundingClientRect = function () {
+              if (this.dataset?.testid === 'bounds-throw') throw new Error('PAGE_BOUNDS_OVERRIDE');
+              return getBoundingClientRect.call(this);
+            };
+          </script>
+        </body>`);
+        return;
+      }
+      if (req.url === "/observation-hostile-inventory-api") {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end(`<!doctype html><body>
+          <main>SAFE_INVENTORY_PAGE</main>
+          <script>
+            document.querySelectorAll = () => {
+              throw new Error('PAGE_INVENTORY_OVERRIDE');
+            };
+          </script>
+        </body>`);
+        return;
+      }
+      if (req.url === "/observation-output-native-first") {
+        const nativeControls = Array.from({ length: 100 }, (_, index) =>
+          `<button data-testid="native-control-${index}">Native control ${index}</button>`
+        ).join("");
+        const genericMarkers = Array.from({ length: 20 }, (_, index) =>
+          `<p role="status" data-testid="generic-status-${index}">Generic status ${index}</p>`
+        ).join("");
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end(`<!doctype html><body>
+          ${nativeControls}
+          ${genericMarkers}
+        </body>`);
+        return;
+      }
+      if (req.url === "/observation-output-generic-first") {
+        const genericMarkers = Array.from({ length: 100 }, (_, index) =>
+          `<p role="status" data-testid="generic-status-${index}">Generic status ${index}</p>`
+        ).join("");
+        const nativeControls = Array.from({ length: 1_000 }, (_, index) =>
+          `<button data-testid="native-control-${index}">Native control ${index}</button>`
+        ).join("");
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end(`<!doctype html><body>
+          ${genericMarkers}
+          ${nativeControls}
+        </body>`);
+        return;
+      }
       if (req.url === "/duplicate-control") {
         res.writeHead(200, { "content-type": "text/html" });
         res.end(`<!doctype html><body>
@@ -355,7 +527,7 @@ describe("runBrowserMission", () => {
     let observationQueries = 0;
     document.querySelectorAll = (...args) => {
       observationQueries += 1;
-      if (observationQueries === 3) throw new Error('Final DOM inventory failed');
+      if (observationQueries === 5) throw new Error('Final DOM inventory failed');
       return querySelectorAll(...args);
     };
   </script>
@@ -501,6 +673,257 @@ describe("runBrowserMission", () => {
     const consoleErrors = JSON.parse(await readFile(result.evidence!.consolePath!, "utf8")) as string[];
     expect(consoleErrors.length).toBeLessThanOrEqual(100);
     expect(consoleErrors.at(-1)?.length).toBeLessThanOrEqual(1_000);
+  });
+
+  it("excludes hidden DOM from observations before bounding visible controls", async () => {
+    const llm = new ObservationVisibilityLLM();
+    const result = await runBrowserMission({
+      id: "observation-visibility",
+      title: "Observe a reviewed visibility transition",
+      risk: "low",
+      startPath: "/observation-visibility",
+      reason: ["Exercise rendered observation filtering."],
+      steps: [{
+        id: "reveal-alert",
+        instruction: "Reveal the reviewed alert.",
+        action: "click",
+        policyLabel: "click",
+        target: "testid=reveal-alert"
+      }, {
+        id: "verify-revealed-alert",
+        instruction: "Verify the reviewed alert is visible after the reveal action.",
+        action: "assert_visible",
+        target: "testid=promo-error"
+      }]
+    }, {
+      baseUrl,
+      contract: {
+        app: { name: "Observation fixture" },
+        criticalFlows: [],
+        sensitiveAreas: [],
+        dangerousActions: { allowed: ["click"], requireApproval: [], forbidden: [] },
+        testData: {},
+        unknowns: []
+      },
+      llm,
+      outputDir: path.join(outputDir, "observation-visibility"),
+      headless: true,
+      maxTurns: 2
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(llm.prompts).toHaveLength(2);
+    expect(llm.prompts[0]).toContain("VISIBLE_CONTROL_SENTINEL");
+    expect(llm.prompts[0]).not.toContain("HIDDEN_CROWD_SENTINEL");
+    expect(llm.prompts[0]).not.toContain("HIDDEN_ANCESTOR_SENTINEL");
+    expect(llm.prompts[0]).not.toContain("HIDDEN_DISPLAY_SENTINEL");
+    expect(llm.prompts[0]).not.toContain("HIDDEN_VISIBILITY_SENTINEL");
+    expect(llm.prompts[0]).not.toContain("hidden-input-sentinel");
+    expect(llm.prompts[0]).not.toContain("HIDDEN_ALERT_SENTINEL");
+    expect(llm.prompts[1]).toContain("HIDDEN_ALERT_SENTINEL");
+
+    const finalObservation = JSON.parse(await readFile(result.evidence!.finalObservationPath!, "utf8")) as {
+      interactive: Array<{ testid?: string; text?: string }>;
+    };
+    expect(finalObservation.interactive).toContainEqual(expect.objectContaining({
+      testid: "promo-error",
+      text: "HIDDEN_ALERT_SENTINEL"
+    }));
+    expect(finalObservation.interactive).toContainEqual(expect.objectContaining({
+      testid: "reveal-alert",
+      text: "VISIBLE_CONTROL_SENTINEL"
+    }));
+    expect(JSON.stringify(finalObservation)).not.toContain("HIDDEN_CROWD_SENTINEL");
+  });
+
+  it("bounds rendered candidate layout checks under a large hidden-node flood", async () => {
+    const llm = new CapturingBlockedLLM();
+    const result = await runBrowserMission({
+      id: "observation-layout-bound",
+      title: "Bound rendered candidate checks",
+      risk: "high",
+      startPath: "/observation-layout-bound",
+      reason: ["Exercise hostile DOM observation bounds."],
+      steps: [{
+        id: "verify-beyond-layout-flood",
+        instruction: "Verify the visible control after the hostile candidate flood.",
+        action: "assert_visible",
+        target: "testid=beyond-layout-flood"
+      }]
+    }, {
+      baseUrl,
+      contract: {
+        app: { name: "Observation bound fixture" },
+        criticalFlows: [],
+        sensitiveAreas: [],
+        dangerousActions: { allowed: [], requireApproval: [], forbidden: [] },
+        testData: {},
+        unknowns: []
+      },
+      llm,
+      outputDir: path.join(outputDir, "observation-layout-bound"),
+      headless: true,
+      maxTurns: 1
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(llm.lastPayload?.currentObservation?.interactive).toContainEqual(expect.objectContaining({
+      testid: "beyond-layout-flood",
+      text: "Control beyond the hostile layout flood"
+    }));
+    expect(result.evidence?.finalObservationPath).toContain("final-observation.json");
+    const finalObservation = JSON.parse(await readFile(result.evidence!.finalObservationPath!, "utf8")) as { text: string };
+    const observedMaximum = Number(finalObservation.text.match(/MAX_LAYOUT_CHECKS:(\d+)/)?.[1]);
+    expect(observedMaximum).toBeGreaterThan(0);
+    expect(observedMaximum).toBeLessThanOrEqual(2100);
+  });
+
+  it("treats page-overridden visibility APIs as untrusted candidate evidence", async () => {
+    const llm = new CapturingBlockedLLM();
+    const result = await runBrowserMission({
+      id: "observation-hostile-visibility-api",
+      title: "Contain page-owned visibility failures",
+      risk: "high",
+      startPath: "/observation-hostile-visibility-api",
+      reason: ["Page-controlled DOM APIs must not abort browser QA."],
+      steps: [{
+        id: "verify-safe-visibility-control",
+        instruction: "Verify the safe control that remains usable.",
+        action: "assert_visible",
+        target: "testid=safe-visibility-control"
+      }]
+    }, {
+      baseUrl,
+      contract: {
+        app: { name: "Hostile visibility fixture" },
+        criticalFlows: [],
+        sensitiveAreas: [],
+        dangerousActions: { allowed: [], requireApproval: [], forbidden: [] },
+        testData: {},
+        unknowns: []
+      },
+      llm,
+      outputDir: path.join(outputDir, "observation-hostile-visibility-api"),
+      headless: true,
+      maxTurns: 1
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(llm.lastPayload?.currentObservation?.interactive).toContainEqual(expect.objectContaining({
+      testid: "safe-visibility-control",
+      text: "Safe visibility control"
+    }));
+    expect(JSON.stringify(llm.lastPayload?.currentObservation?.interactive)).not.toContain("style-throw");
+    expect(JSON.stringify(llm.lastPayload?.currentObservation?.interactive)).not.toContain("bounds-throw");
+  });
+
+  it("fails closed when the page prevents interactive inventory collection", async () => {
+    const llm = new InventoryFailureFinishPassLLM();
+    const runOutputDir = path.join(outputDir, "observation-hostile-inventory-api");
+    const result = await runBrowserMission({
+      id: "observation-hostile-inventory-api",
+      title: "Contain page-owned inventory failures",
+      risk: "high",
+      startPath: "/observation-hostile-inventory-api",
+      reason: ["Inventory-wide observation failures must block evidence persistence."],
+      steps: [{
+        id: "verify-inventory-page",
+        instruction: "Verify the reviewed page text.",
+        action: "assert_text",
+        target: "css=body",
+        expected: "SAFE_INVENTORY_PAGE"
+      }]
+    }, {
+      baseUrl,
+      contract: basicContract(),
+      llm,
+      outputDir: runOutputDir,
+      headless: true,
+      maxTurns: 2
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(llm.calls).toBe(0);
+    expect(result.results.at(-1)).toMatchObject({ stepId: "browser-finalization", status: "blocked" });
+    expect(JSON.stringify(result)).not.toContain("PAGE_INVENTORY_OVERRIDE");
+    expect(result.artifacts).toEqual([]);
+    expect(result.evidence).toEqual({});
+    await expect(stat(path.join(runOutputDir, "trace.zip"))).rejects.toThrow();
+    await expect(stat(path.join(runOutputDir, "final-observation.json"))).rejects.toThrow();
+  });
+
+  it("keeps earlier native controls ahead of later generic markers", async () => {
+    const llm = new CapturingBlockedLLM();
+    const result = await runBrowserMission({
+      id: "observation-output-native-first",
+      title: "Preserve native control order",
+      risk: "medium",
+      startPath: "/observation-output-native-first",
+      reason: ["Later generic markers must not evict earlier actionable controls."],
+      steps: [{
+        id: "verify-native-control",
+        instruction: "Verify the reviewed native control.",
+        action: "assert_visible",
+        target: "testid=native-control-79"
+      }]
+    }, {
+      baseUrl,
+      contract: {
+        app: { name: "Observation selection fixture" },
+        criticalFlows: [],
+        sensitiveAreas: [],
+        dangerousActions: { allowed: [], requireApproval: [], forbidden: [] },
+        testData: {},
+        unknowns: []
+      },
+      llm,
+      outputDir: path.join(outputDir, "observation-output-native-first"),
+      headless: true,
+      maxTurns: 1
+    });
+
+    const interactive = llm.lastPayload?.currentObservation?.interactive;
+    expect(result.status).toBe("blocked");
+    expect(interactive).toHaveLength(80);
+    expect(interactive).toContainEqual(expect.objectContaining({
+      testid: "native-control-79",
+      text: "Native control 79"
+    }));
+    expect(interactive?.[0]).toEqual(expect.objectContaining({ testid: "native-control-0" }));
+    expect(interactive?.[79]).toEqual(expect.objectContaining({ testid: "native-control-79" }));
+    expect(JSON.stringify(interactive)).not.toContain("generic-status-");
+  });
+
+  it("keeps sampled native controls behind an early generic flood", async () => {
+    const llm = new CapturingBlockedLLM();
+    const result = await runBrowserMission({
+      id: "observation-output-generic-first",
+      title: "Retain actionable controls behind generic markers",
+      risk: "medium",
+      startPath: "/observation-output-generic-first",
+      reason: ["An early generic flood must not consume every actionable-control evidence slot."],
+      steps: [{
+        id: "verify-tail-native-control",
+        instruction: "Verify the reviewed native control sampled from the tail.",
+        action: "assert_visible",
+        target: "testid=native-control-999"
+      }]
+    }, {
+      baseUrl,
+      contract: basicContract(),
+      llm,
+      outputDir: path.join(outputDir, "observation-output-generic-first"),
+      headless: true,
+      maxTurns: 1
+    });
+
+    const interactive = llm.lastPayload?.currentObservation?.interactive;
+    expect(result.status).toBe("blocked");
+    expect(interactive).toHaveLength(80);
+    expect(interactive?.filter((item) => item.testid?.startsWith("native-control-"))).toHaveLength(20);
+    expect(interactive).toContainEqual(expect.objectContaining({ testid: "generic-status-0" }));
+    expect(interactive).toContainEqual(expect.objectContaining({ testid: "native-control-0" }));
+    expect(interactive).toContainEqual(expect.objectContaining({ testid: "native-control-999" }));
   });
 
   it("refuses immediate finish_pass before the reviewed assertion is covered", async () => {

@@ -8,6 +8,8 @@ const MAX_BODY_TEXT_CHARS = 8_000;
 const MAX_URL_CHARS = 2_048;
 const MAX_TITLE_CHARS = 512;
 const MAX_INTERACTIVE_ELEMENTS = 80;
+const MAX_INTERACTIVE_CANDIDATES = 1_000;
+const NATIVE_INTERACTIVE_FLOOR = 20;
 const MAX_INTERACTIVE_VALUE_CHARS = 256;
 const MAX_FULL_PAGE_DIMENSION = 10_000;
 const MAX_FULL_PAGE_PIXELS = 25_000_000;
@@ -32,12 +34,133 @@ export async function observe(page: Page, consoleErrors: string[], networkErrors
     width: document.documentElement.scrollWidth,
     height: document.documentElement.scrollHeight
   }));
-  const interactive = await page.evaluate(({ count, valueLimit }) => {
+  const interactive: BrowserObservation["interactive"] = await page.evaluate(({ candidateCount, count, nativeElementFloor, valueLimit }) => {
     const clip = (value: string | null | undefined, limit = valueLimit): string | undefined => {
       const trimmed = value?.trim();
       return trimmed ? trimmed.slice(0, limit) : undefined;
     };
-    const nodes = [...document.querySelectorAll("a,button,input,textarea,select,[role],[data-testid]")].slice(0, count);
+    const isRendered = (element: Element): boolean => {
+      try {
+        if (element instanceof HTMLElement && element.hidden) return false;
+        const style = window.getComputedStyle(element);
+        if (style.display === "none"
+          || style.visibility === "hidden"
+          || style.visibility === "collapse") {
+          return false;
+        }
+        const bounds = element.getBoundingClientRect();
+        return bounds.width > 0 && bounds.height > 0;
+      } catch {
+        // The inspected page owns these DOM APIs. A patched or throwing
+        // implementation cannot become trusted locator evidence.
+        return false;
+      }
+    };
+    const nativeCandidates = document.querySelectorAll("a,button,input,textarea,select");
+    const genericCandidates = document.querySelectorAll(
+      "[role]:not(a,button,input,textarea,select),[data-testid]:not(a,button,input,textarea,select)"
+    );
+    const checkedCandidates = new Set<Element>();
+    let remainingVisibilityChecks = candidateCount;
+    const prioritizedIndices = (length: number, limit: number): number[] => {
+      const bounded = Math.min(length, Math.max(0, limit));
+      if (bounded === 0) return [];
+      if (length <= bounded) return Array.from({ length }, (_, index) => index);
+      const prefixCount = Math.ceil(bounded / 2);
+      const indices = Array.from({ length: prefixCount }, (_, index) => index);
+      const spreadCount = bounded - prefixCount;
+      if (spreadCount === 1) indices.push(length - 1);
+      else if (spreadCount > 1) {
+        const spreadStart = prefixCount;
+        const spreadRange = length - 1 - spreadStart;
+        for (let index = 0; index < spreadCount; index += 1) {
+          indices.push(spreadStart + Math.floor((index * spreadRange) / (spreadCount - 1)));
+        }
+      }
+      return indices;
+    };
+    const collectRendered = (
+      candidates: NodeListOf<Element>,
+      indices: number[],
+      renderedLimit: number
+    ): Element[] => {
+      const rendered: Element[] = [];
+      for (const index of indices) {
+        if (rendered.length >= renderedLimit || remainingVisibilityChecks === 0) break;
+        const candidate = candidates.item(index);
+        if (checkedCandidates.has(candidate)) continue;
+        checkedCandidates.add(candidate);
+        remainingVisibilityChecks -= 1;
+        if (isRendered(candidate)) rendered.push(candidate);
+      }
+      return rendered;
+    };
+    // Native controls get an independent priority lane, so generic semantic
+    // marker floods cannot hide the controls needed for safe interaction.
+    let nativeCheckLimit = Math.min(nativeCandidates.length, Math.ceil(candidateCount / 2));
+    let genericCheckLimit = Math.min(genericCandidates.length, candidateCount - nativeCheckLimit);
+    let unassignedChecks = candidateCount - nativeCheckLimit - genericCheckLimit;
+    const extraNativeChecks = Math.min(unassignedChecks, nativeCandidates.length - nativeCheckLimit);
+    nativeCheckLimit += extraNativeChecks;
+    unassignedChecks -= extraNativeChecks;
+    genericCheckLimit += Math.min(unassignedChecks, genericCandidates.length - genericCheckLimit);
+    const nativeNodes = collectRendered(
+      nativeCandidates,
+      prioritizedIndices(nativeCandidates.length, nativeCheckLimit),
+      count
+    );
+    const genericNodes = collectRendered(
+      genericCandidates,
+      prioritizedIndices(genericCandidates.length, genericCheckLimit),
+      count
+    );
+    // Preserve a small distributed native sample, including tail candidates,
+    // without retaining every rendered element from the bounded scan. This
+    // gives generic-first pages actionable evidence while keeping the common
+    // observation path proportional to the 80-element output budget.
+    const nativeFallbackProbeLimit = Math.min(
+      nativeCheckLimit,
+      count + nativeElementFloor * 4
+    );
+    const nativeFallbackIndices = prioritizedIndices(
+      nativeCandidates.length,
+      nativeFallbackProbeLimit
+    ).reverse();
+    nativeNodes.push(...collectRendered(
+      nativeCandidates,
+      nativeFallbackIndices,
+      nativeElementFloor
+    ));
+    const compareDocumentOrder = (left: Element, right: Element): number => {
+      if (left === right) return 0;
+      const position = left.compareDocumentPosition(right);
+      if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+      if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+      return 0;
+    };
+    const nativeNodeSet = new Set(nativeNodes);
+    const selected = [...nativeNodes, ...genericNodes]
+      .sort(compareDocumentOrder)
+      .slice(0, count);
+    const requiredNativeCount = Math.min(nativeNodes.length, nativeElementFloor);
+    const selectedNativeCount = selected.filter((node) => nativeNodeSet.has(node)).length;
+    const missingNativeCount = requiredNativeCount - selectedNativeCount;
+    if (missingNativeCount > 0) {
+      const fallbackCandidates = nativeNodes
+        .filter((node) => !selected.includes(node))
+        .sort(compareDocumentOrder);
+      const fallbackNodes = prioritizedIndices(fallbackCandidates.length, missingNativeCount)
+        .map((index) => fallbackCandidates[index]!);
+      const replaceableGenericIndices: number[] = [];
+      for (let index = selected.length - 1; index >= 0 && replaceableGenericIndices.length < fallbackNodes.length; index -= 1) {
+        if (!nativeNodeSet.has(selected[index]!)) replaceableGenericIndices.push(index);
+      }
+      for (let index = 0; index < fallbackNodes.length; index += 1) {
+        selected[replaceableGenericIndices[index]!] = fallbackNodes[index]!;
+      }
+      selected.sort(compareDocumentOrder);
+    }
+    const nodes = selected;
     return nodes.map((node) => {
       const element = node as HTMLElement;
       const input = node as HTMLInputElement;
@@ -51,7 +174,12 @@ export async function observe(page: Page, consoleErrors: string[], networkErrors
         testid: clip(element.getAttribute("data-testid"))
       };
     });
-  }, { count: MAX_INTERACTIVE_ELEMENTS, valueLimit: MAX_INTERACTIVE_VALUE_CHARS });
+  }, {
+    candidateCount: MAX_INTERACTIVE_CANDIDATES,
+    count: MAX_INTERACTIVE_ELEMENTS,
+    nativeElementFloor: NATIVE_INTERACTIVE_FLOOR,
+    valueLimit: MAX_INTERACTIVE_VALUE_CHARS
+  });
 
   return {
     url: redactText(page.url().slice(0, MAX_URL_CHARS)),
