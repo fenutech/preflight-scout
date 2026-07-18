@@ -347,6 +347,17 @@ describe("runBrowserMission", () => {
         </body>`);
         return;
       }
+      if (req.url === "/observation-output-reservation") {
+        const nativeControls = Array.from({ length: 100 }, (_, index) =>
+          `<button data-testid="native-control-${index}">Native control ${index}</button>`
+        ).join("");
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end(`<!doctype html><body>
+          <p role="status" data-testid="generic-status-marker">GENERIC_STATUS_SENTINEL</p>
+          ${nativeControls}
+        </body>`);
+        return;
+      }
       if (req.url === "/duplicate-control") {
         res.writeHead(200, { "content-type": "text/html" });
         res.end(`<!doctype html><body>
@@ -678,6 +689,51 @@ describe("runBrowserMission", () => {
       text: "Control beyond the hostile layout flood"
     }));
     expect(result.evidence?.finalObservationPath).toContain("final-observation.json");
+  });
+
+  it("reserves observation output for generic semantic markers", async () => {
+    const llm = new CapturingBlockedLLM();
+    const result = await runBrowserMission({
+      id: "observation-output-reservation",
+      title: "Retain generic semantic observations",
+      risk: "medium",
+      startPath: "/observation-output-reservation",
+      reason: ["Exercise bounded evidence selection across candidate lanes."],
+      steps: [{
+        id: "verify-generic-status",
+        instruction: "Verify the reviewed generic status marker.",
+        action: "assert_visible",
+        target: "testid=generic-status-marker"
+      }]
+    }, {
+      baseUrl,
+      contract: {
+        app: { name: "Observation selection fixture" },
+        criticalFlows: [],
+        sensitiveAreas: [],
+        dangerousActions: { allowed: [], requireApproval: [], forbidden: [] },
+        testData: {},
+        unknowns: []
+      },
+      llm,
+      outputDir: path.join(outputDir, "observation-output-reservation"),
+      headless: true,
+      maxTurns: 1
+    });
+
+    const interactive = llm.lastPayload?.currentObservation?.interactive;
+    expect(result.status).toBe("blocked");
+    expect(interactive).toHaveLength(80);
+    expect(interactive).toContainEqual(expect.objectContaining({
+      testid: "generic-status-marker",
+      role: "status",
+      text: "GENERIC_STATUS_SENTINEL"
+    }));
+    expect(interactive).toContainEqual(expect.objectContaining({
+      testid: "native-control-0",
+      text: "Native control 0"
+    }));
+    expect(interactive?.[0]).toEqual(expect.objectContaining({ testid: "generic-status-marker" }));
   });
 
   it("refuses immediate finish_pass before the reviewed assertion is covered", async () => {

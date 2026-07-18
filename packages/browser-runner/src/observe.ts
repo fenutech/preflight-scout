@@ -9,6 +9,7 @@ const MAX_URL_CHARS = 2_048;
 const MAX_TITLE_CHARS = 512;
 const MAX_INTERACTIVE_ELEMENTS = 80;
 const MAX_INTERACTIVE_CANDIDATES = 1_000;
+const GENERIC_INTERACTIVE_RESERVE = 20;
 const MAX_INTERACTIVE_VALUE_CHARS = 256;
 const MAX_FULL_PAGE_DIMENSION = 10_000;
 const MAX_FULL_PAGE_PIXELS = 25_000_000;
@@ -33,7 +34,7 @@ export async function observe(page: Page, consoleErrors: string[], networkErrors
     width: document.documentElement.scrollWidth,
     height: document.documentElement.scrollHeight
   }));
-  const interactive = await page.evaluate(({ candidateCount, count, valueLimit }) => {
+  const interactive = await page.evaluate(({ candidateCount, count, genericElementReserve, valueLimit }) => {
     const clip = (value: string | null | undefined, limit = valueLimit): string | undefined => {
       const trimmed = value?.trim();
       return trimmed ? trimmed.slice(0, limit) : undefined;
@@ -53,7 +54,6 @@ export async function observe(page: Page, consoleErrors: string[], networkErrors
     const genericCandidates = document.querySelectorAll(
       "[role]:not(a,button,input,textarea,select),[data-testid]:not(a,button,input,textarea,select)"
     );
-    const nodes: Element[] = [];
     const checkedCandidates = new Set<Element>();
     let remainingVisibilityChecks = candidateCount;
     const prioritizedIndices = (length: number, limit: number): number[] => {
@@ -73,15 +73,17 @@ export async function observe(page: Page, consoleErrors: string[], networkErrors
       }
       return indices;
     };
-    const collectRendered = (candidates: NodeListOf<Element>, checkLimit: number): void => {
+    const collectRendered = (candidates: NodeListOf<Element>, checkLimit: number): Element[] => {
+      const rendered: Element[] = [];
       for (const index of prioritizedIndices(candidates.length, Math.min(checkLimit, remainingVisibilityChecks))) {
-        if (nodes.length >= count || remainingVisibilityChecks === 0) return;
+        if (rendered.length >= count || remainingVisibilityChecks === 0) break;
         const candidate = candidates.item(index);
         if (checkedCandidates.has(candidate)) continue;
         checkedCandidates.add(candidate);
         remainingVisibilityChecks -= 1;
-        if (isRendered(candidate)) nodes.push(candidate);
+        if (isRendered(candidate)) rendered.push(candidate);
       }
+      return rendered;
     };
     // Native controls get an independent priority lane, so generic semantic
     // marker floods cannot hide the controls needed for safe interaction.
@@ -92,8 +94,29 @@ export async function observe(page: Page, consoleErrors: string[], networkErrors
     nativeCheckLimit += extraNativeChecks;
     unassignedChecks -= extraNativeChecks;
     genericCheckLimit += Math.min(unassignedChecks, genericCandidates.length - genericCheckLimit);
-    collectRendered(nativeCandidates, nativeCheckLimit);
-    collectRendered(genericCandidates, genericCheckLimit);
+    const nativeNodes = collectRendered(nativeCandidates, nativeCheckLimit);
+    const genericNodes = collectRendered(genericCandidates, genericCheckLimit);
+    const genericReserve = Math.min(genericNodes.length, genericElementReserve);
+    const nativeSelection = nativeNodes.slice(0, count - genericReserve);
+    const genericSelection = genericNodes.slice(0, genericReserve);
+    const selected = [...nativeSelection, ...genericSelection];
+    if (selected.length < count) {
+      const remainder = [
+        ...nativeNodes.slice(nativeSelection.length),
+        ...genericNodes.slice(genericSelection.length)
+      ];
+      for (const candidate of remainder) {
+        if (selected.length >= count) break;
+        if (!selected.includes(candidate)) selected.push(candidate);
+      }
+    }
+    const nodes = selected.sort((left, right) => {
+      if (left === right) return 0;
+      const position = left.compareDocumentPosition(right);
+      if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+      if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+      return 0;
+    });
     return nodes.map((node) => {
       const element = node as HTMLElement;
       const input = node as HTMLInputElement;
@@ -110,6 +133,7 @@ export async function observe(page: Page, consoleErrors: string[], networkErrors
   }, {
     candidateCount: MAX_INTERACTIVE_CANDIDATES,
     count: MAX_INTERACTIVE_ELEMENTS,
+    genericElementReserve: GENERIC_INTERACTIVE_RESERVE,
     valueLimit: MAX_INTERACTIVE_VALUE_CHARS
   });
 
