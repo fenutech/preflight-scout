@@ -13,9 +13,12 @@ const SECRET_PATTERNS = [
   /sk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{20,}/g,
   /AIza[0-9A-Za-z_-]{30,}/g,
   /xox[baprs]-[A-Za-z0-9-]+/g,
-  /-----BEGIN [A-Z ]+PRIVATE KEY-----[\s\S]*?-----END [A-Z ]+PRIVATE KEY-----/g,
   /(?<=["'=:\s])(AKIA[0-9A-Z]{16})(?=["'\s,;]|$)/g
 ];
+
+const PEM_BEGIN_PREFIX = "-----BEGIN ";
+const PEM_END_PREFIX = "-----END ";
+const PEM_BOUNDARY_SUFFIX = "-----";
 
 const OMITTED_SENSITIVE_FILE_CONTEXT = "[OMITTED_SENSITIVE_FILE_CONTEXT]";
 export const MAX_REPO_INVENTORY_COVERAGE_NOTE_CHARS = 1024;
@@ -23,7 +26,10 @@ export const UNKNOWN_REPO_INVENTORY_COVERAGE_NOTE =
   "Repository file-inventory coverage metadata is unavailable. Treat the inventory as incomplete and non-exhaustive.";
 
 export function redactText(value: string, additionalSecrets: Iterable<string> = []): string {
-  let redacted = value;
+  // Parse PEM boundaries before substituting caller-controlled secret values.
+  // Otherwise a secret that overlaps a boundary label could corrupt both the
+  // BEGIN and END markers before the private-key scanner sees them.
+  let redacted = redactPemPrivateKeys(value);
   const secrets = [...new Set([...envSecretValues(), ...additionalSecrets].filter((item) => item.length > 0))]
     .sort((left, right) => right.length - left.length);
   for (const secret of secrets) {
@@ -33,6 +39,89 @@ export function redactText(value: string, additionalSecrets: Iterable<string> = 
     redacted = redacted.replace(pattern, "[REDACTED_SECRET]");
   }
   return redacted;
+}
+
+/**
+ * Redact PEM private-key blocks without a cross-document regular expression.
+ *
+ * The scan only moves forward. Once a valid private-key opening boundary is
+ * found, a missing matching closing boundary redacts through end-of-input. A
+ * truncated private key is still sensitive, and failing closed also prevents
+ * repeated unterminated BEGIN markers from triggering suffix rescans.
+ */
+function redactPemPrivateKeys(value: string): string {
+  const parts: string[] = [];
+  let cursor = 0;
+  let searchFrom = 0;
+
+  while (searchFrom < value.length) {
+    const beginStart = value.indexOf(PEM_BEGIN_PREFIX, searchFrom);
+    if (beginStart === -1) break;
+
+    const begin = parsePrivateKeyPemBegin(value, beginStart);
+    if (!begin) {
+      searchFrom = beginStart + PEM_BEGIN_PREFIX.length;
+      continue;
+    }
+
+    parts.push(value.slice(cursor, beginStart), "[REDACTED_SECRET]");
+    const endBoundary = `${PEM_END_PREFIX}${begin.label}${PEM_BOUNDARY_SUFFIX}`;
+    const endStart = value.indexOf(endBoundary, begin.bodyStart);
+    if (endStart === -1) {
+      cursor = value.length;
+      searchFrom = value.length;
+      break;
+    }
+
+    // PEM blocks cannot be nested. If another opening boundary appears before
+    // the matching END, the input is malformed and the first END may belong to
+    // the inner block. Redact the remaining input instead of exposing an outer
+    // tail after that ambiguous boundary.
+    const nestedBeginStart = value.indexOf(PEM_BEGIN_PREFIX, begin.bodyStart);
+    if (nestedBeginStart !== -1 && nestedBeginStart < endStart) {
+      cursor = value.length;
+      searchFrom = value.length;
+      break;
+    }
+
+    cursor = endStart + endBoundary.length;
+    searchFrom = cursor;
+  }
+
+  if (parts.length === 0) return value;
+  parts.push(value.slice(cursor));
+  return parts.join("");
+}
+
+function parsePrivateKeyPemBegin(
+  value: string,
+  beginStart: number
+): { label: string; bodyStart: number } | undefined {
+  const labelStart = beginStart + PEM_BEGIN_PREFIX.length;
+  let position = labelStart;
+
+  while (position < value.length) {
+    if (value.startsWith(PEM_BOUNDARY_SUFFIX, position)) {
+      const label = value.slice(labelStart, position);
+      if (!isPrivateKeyPemLabel(label)) return undefined;
+      return {
+        label,
+        bodyStart: position + PEM_BOUNDARY_SUFFIX.length
+      };
+    }
+
+    const code = value.charCodeAt(position);
+    const isUppercaseAscii = code >= 65 && code <= 90;
+    const isDigit = code >= 48 && code <= 57;
+    if (code !== 32 && !isUppercaseAscii && !isDigit) return undefined;
+    position += 1;
+  }
+
+  return undefined;
+}
+
+function isPrivateKeyPemLabel(label: string): boolean {
+  return label === "PRIVATE KEY" || label.endsWith(" PRIVATE KEY");
 }
 
 export function redactRepoIndex(repoIndex: RepoIndex): RepoIndex {

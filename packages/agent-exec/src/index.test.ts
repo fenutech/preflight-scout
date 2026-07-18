@@ -16,6 +16,23 @@ import {
   runAgentExecution
 } from "./index.js";
 
+const PROCESS_TREE_FIXTURE_SOURCE = `
+const { spawn } = require("node:child_process");
+spawn(process.execPath, [
+  "-e",
+  "const { writeFileSync } = require('node:fs'); setTimeout(() => writeFileSync(process.argv[1], 'alive'), Number(process.argv[2]));",
+  process.argv[1],
+  process.argv[2]
+], { stdio: "ignore" });
+const outputChars = Number(process.argv[3]);
+if (outputChars > 0) process.stdout.write("x".repeat(outputChars));
+setInterval(() => {}, 1000);
+`;
+
+function processTreeFixtureArgs(marker: string, delayMs: number, outputChars = 0): string[] {
+  return ["-e", PROCESS_TREE_FIXTURE_SOURCE, marker, String(delayMs), String(outputChars)];
+}
+
 const contract = {
   app: { name: "Example" },
   criticalFlows: [],
@@ -470,8 +487,6 @@ describe("runAgentExecution", () => {
   it("terminates the delegated process tree when combined output exceeds the capture bound", async () => {
     const temp = await mkdtemp(path.join(tmpdir(), "preflight-scout-agent-output-tree-"));
     const marker = path.join(temp, "grandchild-survived");
-    const grandchildScript = `const fs = require("node:fs"); setTimeout(() => fs.writeFileSync(${JSON.stringify(marker)}, "alive"), 1200)`;
-    const parentScript = `require("node:child_process").spawn(process.execPath, ["-e", ${JSON.stringify(grandchildScript)}], { stdio: "ignore" }); process.stdout.write("x".repeat(${AGENT_OUTPUT_LIMIT_CHARS + 10_000})); setInterval(() => {}, 1000)`;
     let thrown: unknown;
     try {
       try {
@@ -481,7 +496,7 @@ describe("runAgentExecution", () => {
           contract,
           mission,
           command: process.execPath,
-          args: ["-e", parentScript],
+          args: processTreeFixtureArgs(marker, 1200, AGENT_OUTPUT_LIMIT_CHARS + 10_000),
           timeoutMs: 5000
         });
       } catch (error) {
@@ -503,8 +518,6 @@ describe("runAgentExecution", () => {
   it("terminates the delegated process tree on timeout", async () => {
     const temp = await mkdtemp(path.join(tmpdir(), "preflight-scout-agent-group-"));
     const marker = path.join(temp, "grandchild-survived");
-    const grandchildScript = `const fs = require("node:fs"); setTimeout(() => fs.writeFileSync(${JSON.stringify(marker)}, "alive"), 800)`;
-    const parentScript = `require("node:child_process").spawn(process.execPath, ["-e", ${JSON.stringify(grandchildScript)}], { stdio: "ignore" }); setInterval(() => {}, 1000)`;
 
     try {
       await expect(runAgentExecution({
@@ -513,7 +526,7 @@ describe("runAgentExecution", () => {
         contract,
         mission,
         command: process.execPath,
-        args: ["-e", parentScript],
+        args: processTreeFixtureArgs(marker, 800),
         timeoutMs: 200,
         heartbeatMs: 50
       })).rejects.toBeInstanceOf(AgentExecError);

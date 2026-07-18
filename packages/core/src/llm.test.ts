@@ -18,6 +18,23 @@ import {
   parseAndValidateJson
 } from "./llm.js";
 
+const PROCESS_TREE_FIXTURE_SOURCE = `
+const { spawn } = require("node:child_process");
+spawn(process.execPath, [
+  "-e",
+  "const { writeFileSync } = require('node:fs'); setTimeout(() => writeFileSync(process.argv[1], 'alive'), Number(process.argv[2]));",
+  process.argv[1],
+  process.argv[2]
+], { stdio: "ignore" });
+const outputChars = Number(process.argv[3]);
+if (outputChars > 0) process.stdout.write("x".repeat(outputChars));
+setInterval(() => {}, 1000);
+`;
+
+function processTreeFixtureArgs(marker: string, delayMs: number, outputChars = 0): string[] {
+  return ["-e", PROCESS_TREE_FIXTURE_SOURCE, marker, String(delayMs), String(outputChars)];
+}
+
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
@@ -298,12 +315,10 @@ describe("CliExecLLMClient", () => {
     const directory = await mkdtemp(path.join(tmpdir(), "preflight-scout-llm-timeout-tree-"));
     temporaryDirectories.push(directory);
     const marker = path.join(directory, "grandchild-survived");
-    const grandchildScript = `const fs = require("node:fs"); setTimeout(() => fs.writeFileSync(${JSON.stringify(marker)}, "alive"), 1200)`;
-    const parentScript = `require("node:child_process").spawn(process.execPath, ["-e", ${JSON.stringify(grandchildScript)}], { stdio: "ignore" }); setInterval(() => {}, 1000)`;
     const client = new CliExecLLMClient({
       kind: "codex-exec",
       command: process.execPath,
-      args: ["-e", parentScript],
+      args: processTreeFixtureArgs(marker, 1200),
       timeoutMs: 200
     });
 
@@ -378,12 +393,10 @@ describe("CliExecLLMClient", () => {
     const directory = await mkdtemp(path.join(tmpdir(), "preflight-scout-llm-output-tree-"));
     temporaryDirectories.push(directory);
     const marker = path.join(directory, "grandchild-survived");
-    const grandchildScript = `const fs = require("node:fs"); setTimeout(() => fs.writeFileSync(${JSON.stringify(marker)}, "alive"), 1200)`;
-    const parentScript = `require("node:child_process").spawn(process.execPath, ["-e", ${JSON.stringify(grandchildScript)}], { stdio: "ignore" }); process.stdout.write("x".repeat(5*1024*1024)); setInterval(()=>{},1000)`;
     const client = new CliExecLLMClient({
       kind: "codex-exec",
       command: process.execPath,
-      args: ["-e", parentScript],
+      args: processTreeFixtureArgs(marker, 1200, 5 * 1024 * 1024),
       timeoutMs: 5000
     });
 

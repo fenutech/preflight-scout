@@ -22,6 +22,63 @@ describe("redactText", () => {
     }
   });
 
+  it("redacts common PEM private-key encodings with matching boundaries", () => {
+    for (const label of [
+      "PRIVATE KEY",
+      "ENCRYPTED PRIVATE KEY",
+      "RSA PRIVATE KEY",
+      "DSA PRIVATE KEY",
+      "EC PRIVATE KEY",
+      "OPENSSH PRIVATE KEY"
+    ]) {
+      const pem = `-----BEGIN ${label}-----\nsensitive-body\n-----END ${label}-----`;
+      expect(redactText(`before\n${pem}\nafter`)).toBe("before\n[REDACTED_SECRET]\nafter");
+    }
+  });
+
+  it("redacts repeated unterminated PEM private-key blocks in one forward pass", () => {
+    const malformed = "-----BEGIN RSA PRIVATE KEY-----\nsensitive-body\n".repeat(20_000);
+
+    expect(redactText(`before\n${malformed}`)).toBe("before\n[REDACTED_SECRET]");
+  });
+
+  it("does not let a mismatched PEM end boundary expose a truncated private key", () => {
+    const pem = [
+      "-----BEGIN RSA PRIVATE KEY-----",
+      "sensitive-body",
+      "-----END EC PRIVATE KEY-----",
+      "trailing-sensitive-data"
+    ].join("\n");
+
+    expect(redactText(`before\n${pem}`)).toBe("before\n[REDACTED_SECRET]");
+  });
+
+  it("parses PEM boundaries before replacing an overlapping supplied secret", () => {
+    const pem = [
+      "-----BEGIN RSA PRIVATE KEY-----",
+      "sensitive-body",
+      "-----END RSA PRIVATE KEY-----"
+    ].join("\n");
+
+    expect(redactText(`before\n${pem}\nafter`, ["RSA PRIVATE KEY"]))
+      .toBe("before\n[REDACTED_SECRET]\nafter");
+  });
+
+  it("does not expose an outer tail after a nested PEM opening boundary", () => {
+    const malformed = [
+      "-----BEGIN RSA PRIVATE KEY-----",
+      "outer-secret-a",
+      "-----BEGIN RSA PRIVATE KEY-----",
+      "inner-secret",
+      "-----END RSA PRIVATE KEY-----",
+      "outer-secret-b",
+      "-----END RSA PRIVATE KEY-----",
+      "trailing-sensitive-data"
+    ].join("\n");
+
+    expect(redactText(`before\n${malformed}`)).toBe("before\n[REDACTED_SECRET]");
+  });
+
   it("redacts explicitly supplied child-process secrets", () => {
     const secret = "only-in-child-env-secret";
     expect(redactText(`failure: ${secret}`, [secret])).toBe("failure: [REDACTED_ENV_SECRET]");

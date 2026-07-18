@@ -8,6 +8,9 @@ All notable changes to Preflight Scout are documented here. This project follows
 
 ### Security
 
+- Replaced PEM private-key redaction's cross-document regular expression with
+  a forward-only, fail-closed boundary scanner, including truncated,
+  mismatched, and nested key blocks.
 - Bound reused analysis directories to the repository identity, indexed
   context, exact base and head commits, QA contract, artifact schema, and
   exact Preflight Scout-owned core plus CLI or Action package code/build that
