@@ -180,11 +180,16 @@ class SpacedApprovalTargetLLM implements LLMClient {
 class DecisionSequenceLLM implements LLMClient {
   private turn = 0;
 
-  constructor(private readonly decisions: Array<Record<string, unknown>>) {}
+  constructor(
+    private readonly decisions: Array<Record<string, unknown>>,
+    private readonly beforeDecision?: (turn: number) => void | Promise<void>
+  ) {}
 
   async completeJson<T>(_messages: LLMMessage[], options: StructuredJsonOptions<T>): Promise<T> {
     if (options.schemaName !== "browser_decision") throw new Error(`Unexpected schema in decision sequence: ${options.schemaName}`);
-    const decision = this.decisions[this.turn++];
+    const turn = this.turn++;
+    await this.beforeDecision?.(turn);
+    const decision = this.decisions[turn];
     if (!decision) throw new Error("Decision sequence exhausted");
     return decision as T;
   }
@@ -223,6 +228,7 @@ describe("runBrowserMission", () => {
   let outsideBaseUrl: string;
   let outsideRequests = 0;
   let dangerousMutations = 0;
+  let lateAssertionShouldChange = false;
   let outputDir: string;
 
   beforeAll(async () => {
@@ -319,6 +325,29 @@ describe("runBrowserMission", () => {
     };
   </script>
 </body></html>`);
+        return;
+      }
+      if (req.url === "/late-assertion-change") {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end(`<!doctype html>
+<html lang="en"><head><title>Late assertion fixture</title></head><body>
+  <p data-testid="final-state">Stable final state</p>
+  <script>
+    const target = document.querySelector('[data-testid="final-state"]');
+    const timer = setInterval(async () => {
+      const state = await fetch('/late-assertion-state').then((response) => response.text());
+      if (state === 'changed') {
+        target.textContent = 'Changed final state';
+        clearInterval(timer);
+      }
+    }, 5);
+  </script>
+</body></html>`);
+        return;
+      }
+      if (req.url === "/late-assertion-state") {
+        res.writeHead(200, { "content-type": "text/plain", "cache-control": "no-store" });
+        res.end(lateAssertionShouldChange ? "changed" : "stable");
         return;
       }
       if (req.url === "/boundary") {
@@ -631,6 +660,49 @@ describe("runBrowserMission", () => {
     expect(result.status).toBe("blocked");
     expect(result.results.at(-1)?.message).toContain("rerun: verify-final-heading");
     expect(result.results.at(-1)?.message).not.toContain("rerun: verify-final-total");
+  });
+
+  it("re-evaluates reviewed completion assertions against timer-driven final DOM changes", async () => {
+    lateAssertionShouldChange = false;
+    const storagePath = path.join(outputDir, "late-final-assertion-state.json");
+    const result = await runBrowserMission({
+      id: "late-final-assertion-change",
+      title: "Reject a stale final text claim",
+      risk: "high",
+      startPath: "/late-assertion-change",
+      reason: ["The final DOM must still satisfy the reviewed assertion."],
+      steps: [{
+        id: "verify-final-state",
+        instruction: "Verify the stable final state.",
+        action: "assert_text",
+        target: "testid=final-state",
+        expected: "Stable final state"
+      }]
+    }, {
+      baseUrl,
+      contract: basicContract(),
+      llm: new DecisionSequenceLLM([
+        { thought: "Verify the reviewed state.", action: "assert", missionStepId: "verify-final-state", reason: "The stable final state is present." },
+        { thought: "Finish without another browser action.", action: "finish_pass", reason: "The reviewed assertion passed." }
+      ], async (turn) => {
+        if (turn !== 1) return;
+        lateAssertionShouldChange = true;
+        await new Promise<void>((resolve) => setTimeout(resolve, 100));
+      }),
+      outputDir: path.join(outputDir, "late-final-assertion-change"),
+      headless: true,
+      maxTurns: 2,
+      saveStorageState: storagePath
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(result.results.at(-1)).toMatchObject({ stepId: "browser-finalization", status: "blocked" });
+    expect(result.results.at(-1)?.message).toContain("verify-final-state");
+    expect(result.results.at(-1)?.message).toContain("reviewed text assertion did not find");
+    expect(result.evidence?.tracePath).toBeUndefined();
+    expect(result.evidence?.finalObservationPath).toBeUndefined();
+    await expect(readFile(storagePath, "utf8")).rejects.toThrow();
+    await expect(readFile(`${storagePath}.preflight-scout.json`, "utf8")).resolves.toContain('"status": "invalid"');
   });
 
   it.each([

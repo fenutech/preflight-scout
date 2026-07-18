@@ -321,6 +321,19 @@ export async function runBrowserMission(mission: QAFlowMission, options: Browser
         }
       }
     }
+    if (finalResult?.status === "passed" && !navigation.violation && !page.isClosed()) {
+      try {
+        finalizationProblem = await revalidateCompletionAssertionsAtFinalization({
+          mission,
+          page,
+          options,
+          approvals,
+          navigation
+        });
+      } catch {
+        finalizationProblem = "Browser finalization failed closed because reviewed completion assertions could not be re-evaluated safely.";
+      }
+    }
     if (!page.isClosed()) {
       try {
         // Freeze the only guarded page before evidence or authenticated state is
@@ -621,6 +634,46 @@ function completionAssertionsAfterFinalStateChange(mission: QAFlowMission): QAFl
     index > finalStateChangeIndex
     && Boolean(step.target?.trim())
     && (step.action === "assert_visible" || (step.action === "assert_text" && Boolean(step.expected?.trim())))
+  );
+}
+
+async function revalidateCompletionAssertionsAtFinalization(input: {
+  mission: QAFlowMission;
+  page: Page;
+  options: BrowserRunOptions;
+  approvals: ApprovalState;
+  navigation: BrowserNavigationBoundary;
+}): Promise<string | undefined> {
+  const failures: string[] = [];
+  for (const step of completionAssertionsAfterFinalStateChange(input.mission)) {
+    const navigationProblem = input.navigation.checkPage(input.page, `final assertion ${step.id}`);
+    if (navigationProblem) return navigationProblem.message;
+
+    // Final verification is derived only from the reviewed mission. The live
+    // model cannot substitute a locator or weaken expected text at this
+    // boundary. Reuse the same executor as the interactive assertion path so
+    // attachment, uniqueness, visibility, and text semantics stay identical.
+    const decision = bindReviewedAssertionDecision({
+      thought: "Re-check the reviewed completion assertion on the final page.",
+      action: "assert",
+      missionStepId: step.id,
+      reason: `Final reviewed assertion ${step.id}`
+    }, input.mission);
+    const result = await executeDecision(input.page, decision, input.options, input.approvals, `final-assertion-${step.id}`, {
+      mission: input.mission,
+      missionRole: input.mission.role,
+      navigation: input.navigation
+    });
+
+    const postAssertionNavigationProblem = input.navigation.checkPage(input.page, `final assertion ${step.id}`);
+    if (postAssertionNavigationProblem) return postAssertionNavigationProblem.message;
+    if (result.status !== "passed") {
+      failures.push(`${step.id}: ${sanitizeStepResultMessage(result.message)}`);
+    }
+  }
+  if (!failures.length) return undefined;
+  return sanitizeStepResultMessage(
+    `Browser finalization blocked because reviewed completion assertions did not pass on the final page: ${failures.join("; ")}`
   );
 }
 
