@@ -61,8 +61,10 @@ describe("impact prompt budgets", () => {
     expect(payload.pullRequest.promptCoverage).toMatchObject({ complete: false, totalChangedFiles: 300 });
     expect(payload.pullRequest.promptCoverage.omittedChangedFiles).toBeGreaterThan(0);
     expect(payload.pullRequest.contextCoverage.complete).toBe(false);
-    expect(payload.repoIndex.promptCoverage.complete).toBe(false);
-    expect(payload.repoIndex.promptCoverage.omittedEntries).toBeGreaterThan(0);
+    expect(payload.repositoryInventory.promptCoverage.complete).toBe(false);
+    expect(payload.repositoryInventory.promptCoverage.omittedEntries).toBeGreaterThan(0);
+    expect(payload).not.toHaveProperty("repoIndex");
+    expect(llm.messages.find((message) => message.role === "system")?.content).toContain("mean unclassified, not absent");
   });
 
   it.skipIf(process.platform === "win32")("never sends a hard-linked manifest outside the target repo to the LLM", async () => {
@@ -124,7 +126,7 @@ describe("impact prompt budgets", () => {
     });
 
     const payload = JSON.parse(llm.messages.find((message) => message.role === "user")?.content ?? "{}") as any;
-    expect(payload.repoIndex.fileInventoryCoverage).toMatchObject({ complete: false, maxFiles: 2 });
+    expect(payload.repositoryInventory.fileInventoryCoverage).toMatchObject({ complete: false, maxFiles: 2 });
     expect(result.unknowns).toContain(INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN);
   });
 
@@ -145,13 +147,13 @@ describe("impact prompt budgets", () => {
     const result = await createImpactMap({ repoIndex, contract, pullRequest: { files: [] }, llm });
 
     const payload = JSON.parse(llm.messages.find((message) => message.role === "user")?.content ?? "{}") as any;
-    expect(payload.repoIndex.fileInventoryCoverage).toMatchObject({
+    expect(payload.repositoryInventory.fileInventoryCoverage).toMatchObject({
       state: "unknown",
       complete: false,
       includedFiles: 1
     });
-    expect(payload.repoIndex.fileInventoryCoverage.note).toContain("metadata is unavailable");
-    expect(payload.repoIndex.fileInventoryCoverage).not.toHaveProperty("maxFiles");
+    expect(payload.repositoryInventory.fileInventoryCoverage.note).toContain("metadata is unavailable");
+    expect(payload.repositoryInventory.fileInventoryCoverage).not.toHaveProperty("maxFiles");
     expect(result.unknowns).toContain(INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN);
   });
 
@@ -183,9 +185,9 @@ describe("impact prompt budgets", () => {
     const payload = JSON.parse(llm.messages.find((message) => message.role === "user")?.content ?? "{}") as any;
     expect(prompt).not.toContain(root);
     expect(prompt).not.toContain(secret);
-    expect(payload.repoIndex.fileInventoryCoverage.note).toContain("[REDACTED_REPO_ROOT]");
-    expect(payload.repoIndex.fileInventoryCoverage.note).toContain("[REDACTED_SECRET]");
-    expect(payload.repoIndex.fileInventoryCoverage.note.length).toBeLessThanOrEqual(1024);
+    expect(payload.repositoryInventory.fileInventoryCoverage.note).toContain("[REDACTED_REPO_ROOT]");
+    expect(payload.repositoryInventory.fileInventoryCoverage.note).toContain("[REDACTED_SECRET]");
+    expect(payload.repositoryInventory.fileInventoryCoverage.note.length).toBeLessThanOrEqual(1024);
   });
 
   it("reserves schema space for deterministic inventory coverage", async () => {

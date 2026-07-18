@@ -19,6 +19,12 @@ All notable changes to Preflight Scout are documented here. This project follows
   Missing, foreign, stale, modified, or post-build-patched artifacts now require
   a fresh reviewed analysis before browser or delegated execution.
 
+### Changed
+
+- Described the built-in repository index as a bounded inventory rather than a
+  detected route/framework/component map, and marked empty reserved
+  classification fields as unclassified instead of absent.
+
 ### Fixed
 
 - Made explicit local and staging target selection fail closed when the selected
@@ -53,6 +59,9 @@ All notable changes to Preflight Scout are documented here. This project follows
   trust boundary, including the standard macOS `/tmp` filesystem alias.
 - Bound `replay` to the reviewed analysis manifest instead of accepting a loose
   mission file.
+- Isolated internal QA contract defaults from mutations of the public
+  `DEFAULT_CONTRACT` compatibility object, and returned fresh deep copies for
+  config-free and partial-config loads.
 
 ## [0.1.4] - 2026-07-17
 

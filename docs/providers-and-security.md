@@ -121,8 +121,10 @@ code and must provide its own equivalent isolation.
 - `.gitignore` is part of the repository-disclosure boundary: Preflight Scout indexes
   tracked files plus untracked, non-ignored files and separately excludes known
   credential, auth-state, run-output, archive, cache, and build paths. The
-  LLM-facing repository index replaces the absolute checkout root and redacts
-  detected secrets across manifests, routes, components, and integration hints.
+  built-in repository inventory contains file paths, selected root project-file
+  excerpts, and explicit package-manager evidence; its reserved classification
+  arrays are not automatic detectors. The LLM-facing view replaces the absolute
+  checkout root and redacts detected secrets in every populated field.
   For a changed sensitive/generated path, Preflight Scout keeps only path/status/line
   metadata and replaces the patch and content before model analysis.
 - Never expose provider keys in browser or mobile client code.

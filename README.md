@@ -25,10 +25,11 @@ See the [illustrative sample report](examples/sample-report/report.md), its
 - a Markdown, HTML, JSON, and optional PDF release report
 - optional promotion of a useful mission into a reviewed Playwright regression test
 
-Preflight Scout uses an LLM to map the diff and a limited repository index to
-affected product areas. Deterministic code handles secrets, browser limits,
-evidence, and report output. Without an LLM provider, it can run diagnostics and
-work with existing artifacts, but it cannot create the impact map.
+Preflight Scout uses an LLM to map the diff plus a bounded repository inventory
+of Git-visible paths, selected root project files, and package-manager evidence
+to affected product areas. Deterministic code handles secrets, browser limits,
+evidence, and report output. Without an LLM provider, it can run diagnostics
+and work with existing artifacts, but it cannot create the impact map.
 
 ## Install it for your agent
 
