@@ -40,7 +40,7 @@ const program = new Command();
 program
   .name("preflight-scout")
   .description("Release QA for pull requests")
-  .version("0.1.4");
+  .version("0.1.5");
 
 program
   .command("install-browser")

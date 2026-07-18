@@ -1,6 +1,6 @@
 {
   "name": "@preflight-scout/mcp",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Generic MCP client utilities for Preflight Scout mission bridges.",
   "keywords": ["preflight-scout", "release-qa", "pull-request", "playwright", "agent-skill"],
   "author": "Andrea Fenu",
