@@ -62,6 +62,10 @@ All notable changes to Preflight Scout are documented here. This project follows
 - Isolated internal QA contract defaults from mutations of the public
   `DEFAULT_CONTRACT` compatibility object, and returned fresh deep copies for
   config-free and partial-config loads.
+- Terminated delegated-agent and local-agent descendant processes on Windows
+  after timeouts or output-limit violations by invoking the OS-owned
+  `System32\taskkill.exe` by absolute path, with bounded cleanup and no
+  taskkill output in diagnostics. POSIX process-group signaling is unchanged.
 
 ## [0.1.4] - 2026-07-17
 

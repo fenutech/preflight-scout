@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+import * as processTree from "./process-tree.js";
 import {
   AnthropicClient,
   CliExecLLMClient,
@@ -293,11 +294,96 @@ describe("CliExecLLMClient", () => {
     expect(publicRepresentations.length).toBeLessThan(9000);
   });
 
-  it("terminates a trusted custom command that exceeds the bounded output budget", async () => {
+  it("terminates the local-agent process tree on timeout", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "preflight-scout-llm-timeout-tree-"));
+    temporaryDirectories.push(directory);
+    const marker = path.join(directory, "grandchild-survived");
+    const grandchildScript = `const fs = require("node:fs"); setTimeout(() => fs.writeFileSync(${JSON.stringify(marker)}, "alive"), 1200)`;
+    const parentScript = `require("node:child_process").spawn(process.execPath, ["-e", ${JSON.stringify(grandchildScript)}], { stdio: "ignore" }); setInterval(() => {}, 1000)`;
     const client = new CliExecLLMClient({
       kind: "codex-exec",
       command: process.execPath,
-      args: ["-e", "process.stdout.write('x'.repeat(5*1024*1024));setInterval(()=>{},1000)"],
+      args: ["-e", parentScript],
+      timeoutMs: 200
+    });
+
+    await expect(client.completeJson([{ role: "user", content: "Return JSON." }], {
+      schemaName: "qa_decision",
+      schema: z.object({ ok: z.boolean() }),
+      maxProviderAttempts: 1
+    })).rejects.toThrow("timed out");
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await expect(access(marker)).rejects.toThrow();
+  });
+
+  it("waits for bounded local-agent cleanup and returns only safe cleanup diagnostics", async () => {
+    let releaseCleanup = () => undefined;
+    let markCleanupStarted = () => undefined;
+    const cleanupStarted = new Promise<void>((resolve) => {
+      markCleanupStarted = resolve;
+    });
+    const cleanupGate = new Promise<void>((resolve) => {
+      releaseCleanup = resolve;
+    });
+    const terminator = vi.spyOn(processTree, "terminateProcessTree").mockImplementation(async (child, signal) => {
+      markCleanupStarted();
+      (child as unknown as { emit(event: string, error: Error): boolean }).emit(
+        "error",
+        Object.assign(new Error("private cleanup detail must stay hidden"), { code: "ESRCH" })
+      );
+      await cleanupGate;
+      child.kill(signal);
+      return {
+        confirmed: false,
+        diagnostic: "Bounded process-tree cleanup could not be confirmed."
+      };
+    });
+    const client = new CliExecLLMClient({
+      kind: "codex-exec",
+      command: process.execPath,
+      args: ["-e", "setInterval(() => {}, 1000)"],
+      timeoutMs: 50
+    });
+
+    try {
+      let settled = false;
+      const outcome = client.completeJson([{ role: "user", content: "Return JSON." }], {
+        schemaName: "qa_decision",
+        schema: z.object({ ok: z.boolean() }),
+        maxProviderAttempts: 1
+      }).then(
+        () => undefined,
+        (error: unknown) => error
+      ).finally(() => {
+        settled = true;
+      });
+
+      await cleanupStarted;
+      await new Promise((resolve) => setTimeout(resolve, 75));
+      expect(settled).toBe(false);
+      releaseCleanup();
+
+      const error = await outcome;
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toContain("Bounded process-tree cleanup could not be confirmed.");
+      expect((error as Error).message).toContain("subprocess emitted ESRCH during cleanup");
+      expect((error as Error).message).not.toContain("private cleanup detail");
+    } finally {
+      releaseCleanup();
+      terminator.mockRestore();
+    }
+  });
+
+  it("terminates the local-agent process tree when it exceeds the bounded output budget", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "preflight-scout-llm-output-tree-"));
+    temporaryDirectories.push(directory);
+    const marker = path.join(directory, "grandchild-survived");
+    const grandchildScript = `const fs = require("node:fs"); setTimeout(() => fs.writeFileSync(${JSON.stringify(marker)}, "alive"), 1200)`;
+    const parentScript = `require("node:child_process").spawn(process.execPath, ["-e", ${JSON.stringify(grandchildScript)}], { stdio: "ignore" }); process.stdout.write("x".repeat(5*1024*1024)); setInterval(()=>{},1000)`;
+    const client = new CliExecLLMClient({
+      kind: "codex-exec",
+      command: process.execPath,
+      args: ["-e", parentScript],
       timeoutMs: 5000
     });
 
@@ -306,6 +392,8 @@ describe("CliExecLLMClient", () => {
       schema: z.object({ ok: z.boolean() }),
       maxProviderAttempts: 1
     })).rejects.toThrow("4194304-character output limit");
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await expect(access(marker)).rejects.toThrow();
   });
 
   it("does not retain trusted custom command or argv metadata when spawn fails", async () => {
