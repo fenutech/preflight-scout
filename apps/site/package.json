@@ -1,6 +1,6 @@
 {
   "name": "@preflight-scout/site",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "scripts": {
     "predev": "node scripts/sync-sample-report.mjs",

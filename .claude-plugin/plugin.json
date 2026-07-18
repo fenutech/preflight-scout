@@ -1,7 +1,7 @@
 {
   "name": "preflight-scout",
   "description": "Map pull-request changes, run focused checks and bounded browser missions, and report release evidence.",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "author": {
     "name": "Andrea Fenu"
   },

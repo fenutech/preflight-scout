@@ -1,6 +1,6 @@
 {
   "name": "@preflight-scout/github-action",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "GitHub Action entrypoint for Preflight Scout PR reports and browser evidence.",
   "keywords": ["preflight-scout", "release-qa", "pull-request", "playwright", "agent-skill"],
   "author": "Andrea Fenu",

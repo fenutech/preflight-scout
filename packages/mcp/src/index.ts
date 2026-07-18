@@ -14,7 +14,7 @@ export async function withMCPClient<T>(
 ): Promise<T> {
   const client = new Client({
     name: "preflight-scout",
-    version: "0.1.4"
+    version: "0.1.5"
   });
   const transport = new StdioClientTransport({
     command: server.command,

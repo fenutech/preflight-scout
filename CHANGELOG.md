@@ -6,6 +6,8 @@ All notable changes to Preflight Scout are documented here. This project follows
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-07-18
+
 ### Security
 
 - Replaced PEM private-key redaction's cross-document regular expression with
