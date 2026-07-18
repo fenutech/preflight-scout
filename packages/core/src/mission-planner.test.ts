@@ -64,22 +64,26 @@ describe("createQAMission", () => {
     });
 
     const prompt = llm.messages.map((message) => message.content).join("\n");
-    expect(prompt).toContain("Every automation candidate must include at least one explicit assert_visible or assert_text step");
+    expect(prompt).toContain("Every automation candidate must include at least one explicit assert_visible or assert_text step after its final reviewed state-changing step");
+    expect(prompt).toContain("Assertions before a later goto, login, click, fill, or press step are intermediate evidence");
     expect(prompt).toContain("An observe step is discovery-only");
     expect(prompt).toContain("cannot prove that an element is absent from the accessibility tree");
     expect(prompt).toContain("keep the check in manualChecklist or unknowns");
   });
 
-  it("omits an assertionless transition while preserving an assertable sibling", async () => {
-    const llm = new CaptureLLM([], [assertableTransition(), assertionlessTransition()]);
+  it("omits candidates without final-state assertions while preserving intermediate and completion evidence", async () => {
+    const llm = new CaptureLLM([], [assertableTransition(), assertionBeforeMutationTransition(), assertionlessTransition()]);
 
     const mission = await createQAMission({ impactMap: impactMap(), contract: contract(), llm });
 
     expect(mission.automationCandidates.map((candidate) => candidate.id)).toEqual(["promo-expired-assertable"]);
     expect(mission.automationCandidates[0]?.steps.filter((step) => step.action === "assert_visible" || step.action === "assert_text"))
-      .toHaveLength(2);
+      .toHaveLength(3);
     expect(mission.unknowns).toContain(
-      "Automation candidate \"promo-valid-to-expired\" was omitted because it has no reviewed assert_visible/assert_text completion step. Keep this check manual or regenerate it with an explicit reviewed assertion."
+      "Automation candidate \"promo-valid-to-expired\" was omitted because it has no valid reviewed assert_visible/assert_text completion step after its final state-changing action. Keep this check manual or regenerate it with explicit final-state evidence."
+    );
+    expect(mission.unknowns).toContain(
+      "Automation candidate \"promo-asserted-before-transition\" was omitted because it has no valid reviewed assert_visible/assert_text completion step after its final state-changing action. Keep this check manual or regenerate it with explicit final-state evidence."
     );
   });
 
@@ -106,7 +110,7 @@ describe("createQAMission", () => {
     expect(mission.unknowns).toHaveLength(200);
     expect(mission.unknowns).toContain(INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN);
     expect(mission.unknowns).toContain(
-      "Automation candidate \"promo-valid-to-expired\" was omitted because it has no reviewed assert_visible/assert_text completion step. Keep this check manual or regenerate it with an explicit reviewed assertion."
+      "Automation candidate \"promo-valid-to-expired\" was omitted because it has no valid reviewed assert_visible/assert_text completion step after its final state-changing action. Keep this check manual or regenerate it with explicit final-state evidence."
     );
   });
 });
@@ -149,6 +153,25 @@ function assertableTransition(): QAFlowMission {
     risk: "high",
     reason: ["Bind the final state to reviewed evidence."],
     steps: [{
+      id: "initial-total",
+      instruction: "Record the reviewed starting total.",
+      action: "assert_text",
+      target: "testid=order-total",
+      expected: "Total: $100.00"
+    }, {
+      id: "expired-code",
+      instruction: "Enter the expired coupon.",
+      action: "fill",
+      policyLabel: "fill",
+      target: "testid=promo-code",
+      value: "EXPIRED10"
+    }, {
+      id: "apply-expired-code",
+      instruction: "Apply the expired coupon.",
+      action: "click",
+      policyLabel: "click",
+      target: "testid=apply-promo"
+    }, {
       id: "expired-alert",
       instruction: "Verify the expiration alert is visible.",
       action: "assert_visible",
@@ -159,6 +182,36 @@ function assertableTransition(): QAFlowMission {
       action: "assert_text",
       target: "testid=order-total",
       expected: "Total: $100.00"
+    }]
+  };
+}
+
+function assertionBeforeMutationTransition(): QAFlowMission {
+  return {
+    id: "promo-asserted-before-transition",
+    title: "Do not mistake initial state for completion evidence",
+    startPath: "/",
+    risk: "high",
+    reason: ["An assertion before the transition is intermediate evidence only."],
+    steps: [{
+      id: "initial-total",
+      instruction: "Verify the initial total.",
+      action: "assert_text",
+      target: "testid=order-total",
+      expected: "Total: $100.00"
+    }, {
+      id: "expired-code",
+      instruction: "Enter the expired coupon.",
+      action: "fill",
+      policyLabel: "fill",
+      target: "testid=promo-code",
+      value: "EXPIRED10"
+    }, {
+      id: "apply-expired-code",
+      instruction: "Apply the expired coupon.",
+      action: "click",
+      policyLabel: "click",
+      target: "testid=apply-promo"
     }]
   };
 }

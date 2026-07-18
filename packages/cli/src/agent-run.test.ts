@@ -62,6 +62,49 @@ describe("agent-run CLI", () => {
     expect(capturedPrompt).toContain('"id": "reviewed-flow"');
   }, 15_000);
 
+  it("reports an all-manual reviewed analysis without starting an agent", async () => {
+    const parent = await mkdtemp(path.join(tmpdir(), "preflight-scout-agent-run-manual-"));
+    tempDirs.push(parent);
+    const demo = await createGenericDemoRepo({ output: path.join(parent, "repo") });
+    const analysisDir = path.join(demo.root, ".preflight-scout", "runs", "reviewed");
+    await writeReviewedAnalysis(demo.root, analysisDir, allManualAnalysis());
+    const marker = path.join(parent, "agent-started");
+    const agentScript = path.join(parent, "mark-agent-start.mjs");
+    await writeFile(agentScript, `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "started");\n`);
+
+    const { stdout } = await runCli([
+      "agent-run",
+      "--root", demo.root,
+      "--analysis-dir", ".preflight-scout/runs/reviewed",
+      "--base", "HEAD~1",
+      "--head", "HEAD",
+      "--agent", "custom",
+      "--command", process.execPath,
+      "--arg", agentScript
+    ]);
+
+    expect(stdout).toContain("No runnable browser missions were generated");
+    expect(stdout).toContain("No browser agent was started and no browser evidence was produced");
+    expect(stdout).toContain("Manual check: Review the changed flow manually.");
+    expect(stdout).toContain("Unknown: A deterministic final-state assertion was unavailable.");
+    await expect(access(marker)).rejects.toThrow();
+
+    await expect(runCli([
+      "agent-run",
+      "--root", demo.root,
+      "--analysis-dir", ".preflight-scout/runs/reviewed",
+      "--base", "HEAD~1",
+      "--head", "HEAD",
+      "--mission-id", "missing",
+      "--agent", "custom",
+      "--command", process.execPath,
+      "--arg", agentScript
+    ])).rejects.toMatchObject({
+      stderr: expect.stringContaining('Automation candidate "missing" was not found. Available candidates: (none)')
+    });
+    await expect(access(marker)).rejects.toThrow();
+  }, 15_000);
+
   it("rejects an unresolved reviewed ref before the delegated agent starts", async () => {
     const parent = await mkdtemp(path.join(tmpdir(), "preflight-scout-agent-run-ref-"));
     tempDirs.push(parent);
@@ -383,6 +426,19 @@ function reviewedAnalysis(role?: string): { impactMap: ImpactMap; mission: QAMis
         steps: [{ id: "observe-reviewed", instruction: "Observe the reviewed flow", action: "observe" }]
       }],
       unknowns: []
+    }
+  };
+}
+
+function allManualAnalysis(): { impactMap: ImpactMap; mission: QAMission } {
+  const analysis = reviewedAnalysis();
+  return {
+    impactMap: analysis.impactMap,
+    mission: {
+      ...analysis.mission,
+      manualChecklist: ["Review the changed flow manually."],
+      automationCandidates: [],
+      unknowns: ["A deterministic final-state assertion was unavailable."]
     }
   };
 }

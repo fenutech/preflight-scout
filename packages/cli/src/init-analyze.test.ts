@@ -58,6 +58,75 @@ describe("init followed by analyze", () => {
     }
     await expect(readFile(agentLog, "utf8")).resolves.toBe("qa_contract\nimpact_map\nqa_mission\n");
 
+    const plannedMission = JSON.parse(await readFile(path.join(outputDir, "mission.json"), "utf8")) as {
+      automationCandidates: unknown[];
+      unknowns: string[];
+    };
+    expect(plannedMission.automationCandidates).toEqual([]);
+    expect(plannedMission.unknowns.join("\n")).toContain("explicit final-state evidence");
+
+    const allManualRun = await runCli([
+      "run",
+      "--root", demo.root,
+      "--analysis-dir", outputDir,
+      "--base", "origin/main",
+      "--head", "HEAD"
+    ], { ...env, PREFLIGHT_SCOUT_LLM_PROVIDER: "none" });
+    expect(allManualRun.stdout).toContain("Verdict: no browser evidence yet");
+    await expect(access(path.join(outputDir, "run-results.json"))).rejects.toThrow();
+    await expect(access(path.join(outputDir, "browser-evidence"))).rejects.toThrow();
+    await expect(readFile(path.join(outputDir, "report.md"), "utf8")).resolves.toContain("No runnable browser mission was generated");
+    await expect(readFile(agentLog, "utf8")).resolves.toBe("qa_contract\nimpact_map\nqa_mission\n");
+
+    await expect(runCli([
+      "run",
+      "--root", demo.root,
+      "--analysis-dir", outputDir,
+      "--base", "origin/main",
+      "--head", "HEAD",
+      "--mission-id", "missing"
+    ], { ...env, PREFLIGHT_SCOUT_LLM_PROVIDER: "none" })).rejects.toMatchObject({
+      stderr: expect.stringContaining('Automation candidate "missing" was not found. Available candidates: (none)')
+    });
+
+    const missionPrompt = await runCli([
+      "mission-prompt",
+      "--root", demo.root,
+      "--mission", path.join(outputDir, "mission.json")
+    ], { ...env, PREFLIGHT_SCOUT_LLM_PROVIDER: "none" });
+    expect(missionPrompt.stdout).toContain("No runnable browser missions were generated");
+    expect(missionPrompt.stdout).toContain("No browser execution was started and no browser evidence was produced");
+
+    const replayOutput = path.join(demo.root, ".preflight-scout", "runs", "replay-manual");
+    const replay = await runCli([
+      "replay",
+      "--root", demo.root,
+      "--mission", path.join(outputDir, "mission.json"),
+      "--base", "origin/main",
+      "--head", "HEAD",
+      "--output-dir", replayOutput
+    ], { ...env, PREFLIGHT_SCOUT_LLM_PROVIDER: "none" });
+    expect(replay.stdout).toContain("Verdict: no browser evidence yet");
+    await expect(readFile(path.join(replayOutput, "report.md"), "utf8")).resolves.toContain("No runnable browser mission was generated");
+    await expect(access(path.join(replayOutput, "run-results.json"))).rejects.toThrow();
+    await expect(access(path.join(replayOutput, "browser-evidence"))).rejects.toThrow();
+
+    const mcpMarker = path.join(parent, "mcp-started");
+    const mcpScript = path.join(parent, "mark-mcp-start.mjs");
+    await writeFile(mcpScript, `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(mcpMarker)}, "started");\n`);
+    const mcpRun = await runCli([
+      "mcp-run",
+      "--root", demo.root,
+      "--base", "origin/main",
+      "--head", "HEAD",
+      "--server-command", process.execPath,
+      "--server-arg", mcpScript,
+      "--tool", "unused"
+    ], env);
+    expect(mcpRun.stdout).toContain("No MCP tool was called and no browser evidence was produced");
+    await expect(access(mcpMarker)).rejects.toThrow();
+    await expect(readFile(agentLog, "utf8")).resolves.toBe("qa_contract\nimpact_map\nqa_mission\nimpact_map\nqa_mission\n");
+
     const staleResultsPath = path.join(outputDir, "run-results.json");
     await writeFile(staleResultsPath, `${JSON.stringify([{
       missionId: "stale-browser-mission",
@@ -86,7 +155,7 @@ describe("init followed by analyze", () => {
     ], env)).rejects.toMatchObject({
       stderr: expect.stringContaining("no declared browser results")
     });
-    await expect(readFile(agentLog, "utf8")).resolves.toBe("qa_contract\nimpact_map\nqa_mission\n");
+    await expect(readFile(agentLog, "utf8")).resolves.toBe("qa_contract\nimpact_map\nqa_mission\nimpact_map\nqa_mission\n");
 
     const missionPath = path.join(outputDir, "mission.json");
     const mission = JSON.parse(await readFile(missionPath, "utf8")) as { title: string };
@@ -101,7 +170,7 @@ describe("init followed by analyze", () => {
     ], env)).rejects.toMatchObject({
       stderr: expect.stringContaining("mission.json no longer matches its reviewed digest")
     });
-    await expect(readFile(agentLog, "utf8")).resolves.toBe("qa_contract\nimpact_map\nqa_mission\n");
+    await expect(readFile(agentLog, "utf8")).resolves.toBe("qa_contract\nimpact_map\nqa_mission\nimpact_map\nqa_mission\n");
   }, 30_000);
 
   it("keeps an init --url staging default runnable for a named target", async () => {

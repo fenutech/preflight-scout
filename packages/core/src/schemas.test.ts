@@ -61,6 +61,19 @@ describe("artifact schema budgets", () => {
     }).success).toBe(true);
   });
 
+  it("requires nonblank reviewed text assertion evidence", () => {
+    const assertion = {
+      id: "assert",
+      instruction: "Assert.",
+      action: "assert_text" as const,
+      target: "testid=status"
+    };
+
+    expect(MissionStepSchema.safeParse({ ...assertion, expected: "" }).success).toBe(false);
+    expect(MissionStepSchema.safeParse({ ...assertion, expected: "   " }).success).toBe(false);
+    expect(MissionStepSchema.safeParse({ ...assertion, expected: "Ready" }).success).toBe(true);
+  });
+
   it("rejects unknown safety-policy and model control fields", () => {
     expect(QAContractSchema.safeParse({
       app: {},

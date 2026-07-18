@@ -484,6 +484,189 @@ describe("runBrowserMission", () => {
     expect(immediate.results.at(-1)?.message).toContain("not successfully covered");
   });
 
+  it("invalidates an early completion assertion after a later reviewed state change", async () => {
+    const result = await runBrowserMission({
+      id: "stale-completion-assertion",
+      title: "Do not reuse stale completion evidence",
+      risk: "high",
+      startPath: "/",
+      reason: ["The final assertion must describe the post-action state."],
+      steps: [{
+        id: "enter-valid-code",
+        instruction: "Enter the reviewed coupon.",
+        action: "fill",
+        policyLabel: "fill",
+        target: "testid=promo-code",
+        value: "SAVE10"
+      }, {
+        id: "apply-valid-code",
+        instruction: "Apply the reviewed coupon.",
+        action: "click",
+        policyLabel: "click",
+        target: "testid=apply-promo"
+      }, {
+        id: "verify-final-total",
+        instruction: "Verify the reviewed final total.",
+        action: "assert_text",
+        target: "testid=order-total",
+        expected: "Total: $100.00"
+      }]
+    }, {
+      baseUrl,
+      contract: basicContract(),
+      llm: new DecisionSequenceLLM([
+        { thought: "Assert too early.", action: "assert", missionStepId: "verify-final-total", reason: "The initial total matches." },
+        { thought: "Enter the coupon.", action: "fill", missionStepId: "enter-valid-code", target: "testid=promo-code", value: "SAVE10", reason: "Use the reviewed code." },
+        { thought: "Apply the coupon.", action: "click", missionStepId: "apply-valid-code", target: "testid=apply-promo", reason: "Run the reviewed mutation." },
+        { thought: "Finish without reasserting.", action: "finish_pass", reason: "All step ids ran." }
+      ]),
+      outputDir: path.join(outputDir, "stale-completion-assertion"),
+      headless: true,
+      maxTurns: 4
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(result.results.at(-1)?.message).toContain("must pass after the latest browser state change");
+  });
+
+  it("preserves intermediate assertion coverage while requiring fresh final-state evidence", async () => {
+    const result = await runBrowserMission({
+      id: "intermediate-and-final-assertions",
+      title: "Keep intermediate and final evidence",
+      risk: "high",
+      startPath: "/",
+      reason: ["Prove both the initial and post-action totals."],
+      steps: [{
+        id: "verify-initial-total",
+        instruction: "Verify the reviewed initial total.",
+        action: "assert_text",
+        target: "testid=order-total",
+        expected: "Total: $100.00"
+      }, {
+        id: "enter-valid-code",
+        instruction: "Enter the reviewed coupon.",
+        action: "fill",
+        policyLabel: "fill",
+        target: "testid=promo-code",
+        value: "SAVE10"
+      }, {
+        id: "apply-valid-code",
+        instruction: "Apply the reviewed coupon.",
+        action: "click",
+        policyLabel: "click",
+        target: "testid=apply-promo"
+      }, {
+        id: "verify-final-total",
+        instruction: "Verify the reviewed discounted total.",
+        action: "assert_text",
+        target: "testid=order-total",
+        expected: "Total: $90.00"
+      }]
+    }, {
+      baseUrl,
+      contract: basicContract(),
+      llm: new DecisionSequenceLLM([
+        { thought: "Record the initial state.", action: "assert", missionStepId: "verify-initial-total", reason: "The initial total matches." },
+        { thought: "Enter the coupon.", action: "fill", missionStepId: "enter-valid-code", target: "testid=promo-code", value: "SAVE10", reason: "Use the reviewed code." },
+        { thought: "Apply the coupon.", action: "click", missionStepId: "apply-valid-code", target: "testid=apply-promo", reason: "Run the reviewed mutation." },
+        { thought: "Verify the final state.", action: "assert", missionStepId: "verify-final-total", reason: "The discounted total matches." },
+        { thought: "Finish with fresh evidence.", action: "finish_pass", reason: "Both reviewed states passed." }
+      ]),
+      outputDir: path.join(outputDir, "intermediate-and-final-assertions"),
+      headless: true,
+      maxTurns: 5
+    });
+
+    expect(result.status).toBe("passed");
+    expect(result.results.filter((step) => step.status === "passed")).toHaveLength(5);
+  });
+
+  it("requires every final completion assertion to be fresh after a later state change", async () => {
+    const result = await runBrowserMission({
+      id: "all-final-assertions-fresh",
+      title: "Refresh every final claim",
+      risk: "high",
+      startPath: "/",
+      reason: ["Independent final claims must all describe the current state."],
+      steps: [{
+        id: "enter-valid-code",
+        instruction: "Enter the reviewed coupon.",
+        action: "fill",
+        policyLabel: "fill",
+        target: "testid=promo-code",
+        value: "SAVE10"
+      }, {
+        id: "apply-valid-code",
+        instruction: "Apply the reviewed coupon.",
+        action: "click",
+        policyLabel: "click",
+        target: "testid=apply-promo"
+      }, {
+        id: "verify-final-total",
+        instruction: "Verify the reviewed discounted total.",
+        action: "assert_text",
+        target: "testid=order-total",
+        expected: "Total: $90.00"
+      }, {
+        id: "verify-final-heading",
+        instruction: "Verify the reviewed checkout heading.",
+        action: "assert_visible",
+        target: "text=Checkout"
+      }]
+    }, {
+      baseUrl,
+      contract: basicContract(),
+      llm: new DecisionSequenceLLM([
+        { thought: "Assert the heading too early.", action: "assert", missionStepId: "verify-final-heading", reason: "The heading is initially visible." },
+        { thought: "Enter the coupon.", action: "fill", missionStepId: "enter-valid-code", target: "testid=promo-code", value: "SAVE10", reason: "Use the reviewed code." },
+        { thought: "Apply the coupon.", action: "click", missionStepId: "apply-valid-code", target: "testid=apply-promo", reason: "Run the reviewed mutation." },
+        { thought: "Refresh only the total.", action: "assert", missionStepId: "verify-final-total", reason: "The discounted total matches." },
+        { thought: "Finish with one stale final claim.", action: "finish_pass", reason: "All step ids ran once." }
+      ]),
+      outputDir: path.join(outputDir, "all-final-assertions-fresh"),
+      headless: true,
+      maxTurns: 5
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(result.results.at(-1)?.message).toContain("rerun: verify-final-heading");
+    expect(result.results.at(-1)?.message).not.toContain("rerun: verify-final-total");
+  });
+
+  it.each([
+    ["wait", "0"],
+    ["scroll", "down"],
+    ["set_viewport", "390x844"]
+  ] as const)("invalidates completion evidence after a later %s browser-state action", async (action, value) => {
+    const result = await runBrowserMission({
+      id: `stale-after-${action}`,
+      title: "Require fresh browser-state evidence",
+      risk: "medium",
+      startPath: "/",
+      reason: ["A later browser-state operation can invalidate visible evidence."],
+      steps: [{
+        id: "verify-checkout",
+        instruction: "Verify the checkout heading.",
+        action: "assert_visible",
+        target: "text=Checkout"
+      }]
+    }, {
+      baseUrl,
+      contract: basicContract(),
+      llm: new DecisionSequenceLLM([
+        { thought: "Capture completion evidence.", action: "assert", missionStepId: "verify-checkout", reason: "Checkout is visible." },
+        { thought: "Change browser state.", action, value, reason: "Exercise a browser-state operation." },
+        { thought: "Finish without reasserting.", action: "finish_pass", reason: "The earlier assertion passed." }
+      ]),
+      outputDir: path.join(outputDir, `stale-after-${action}`),
+      headless: true,
+      maxTurns: 3
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(result.results.at(-1)?.message).toContain("must pass after the latest browser state change");
+  });
+
   it("rejects an assertionless reviewed mission before browser launch or an LLM decision", async () => {
     const llm = new UnexpectedDecisionLLM();
     const runOutput = path.join(outputDir, "assertionless-mission");
@@ -528,10 +711,79 @@ describe("runBrowserMission", () => {
       results: [{
         stepId: "mission-config",
         status: "blocked",
-        message: "Browser missions must include at least one reviewed assert_visible/assert_text completion step; observe steps are discovery-only and cannot support a pass claim."
+        message: "Browser missions must include at least one valid reviewed assert_visible/assert_text completion step after the final reviewed goto/login/click/fill/press step; observe and earlier assertions cannot support the final pass claim."
       }],
       artifacts: []
     });
+    expect(llm.calls).toBe(0);
+    await expect(stat(runOutput)).rejects.toThrow();
+  });
+
+  it("rejects a reviewed mission whose only assertion precedes its final state change", async () => {
+    const llm = new UnexpectedDecisionLLM();
+    const runOutput = path.join(outputDir, "assertion-before-mutation");
+    const result = await runBrowserMission({
+      id: "assertion-before-mutation",
+      title: "Reject stale completion planning",
+      risk: "high",
+      startPath: "/",
+      reason: ["Intermediate evidence cannot finish the mission."],
+      steps: [{
+        id: "verify-initial-total",
+        instruction: "Verify the initial total.",
+        action: "assert_text",
+        target: "testid=order-total",
+        expected: "Total: $100.00"
+      }, {
+        id: "enter-valid-code",
+        instruction: "Enter the reviewed coupon.",
+        action: "fill",
+        policyLabel: "fill",
+        target: "testid=promo-code",
+        value: "SAVE10"
+      }]
+    }, {
+      baseUrl,
+      contract: basicContract(),
+      llm,
+      outputDir: runOutput,
+      headless: true,
+      maxTurns: 3
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(result.results[0]?.message).toContain("after the final reviewed goto/login/click/fill/press step");
+    expect(llm.calls).toBe(0);
+    await expect(stat(runOutput)).rejects.toThrow();
+  });
+
+  it.each(["", "   "])("rejects assert_text expected=%j before browser launch", async (expected) => {
+    const llm = new UnexpectedDecisionLLM();
+    const runOutput = path.join(outputDir, `nonblank-assertion-${expected.length}`);
+    const result = await runBrowserMission({
+      id: "nonblank-text-assertion",
+      title: "Require meaningful text evidence",
+      risk: "medium",
+      startPath: "/",
+      reason: ["Blank expected text cannot prove a result."],
+      steps: [{
+        id: "verify-total",
+        instruction: "Verify the reviewed total.",
+        action: "assert_text",
+        target: "testid=order-total",
+        expected
+      }]
+    }, {
+      baseUrl,
+      contract: basicContract(),
+      llm,
+      outputDir: runOutput,
+      headless: true,
+      maxTurns: 1
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(result.results[0]?.message).toContain("must include nonblank expected text");
     expect(llm.calls).toBe(0);
     await expect(stat(runOutput)).rejects.toThrow();
   });

@@ -75,16 +75,14 @@ export function selectAutomationCandidates(mission: QAMission, options: { missio
   if (options.missionId && options.allCandidates) {
     throw new Error("Use either mission-id or all-candidates, not both.");
   }
-  if (!mission.automationCandidates.length) {
-    throw new Error("Mission artifact does not include automationCandidates.");
-  }
   if (options.missionId) {
     const selected = mission.automationCandidates.find((candidate) => candidate.id === options.missionId);
     if (!selected) {
-      const available = mission.automationCandidates.map((candidate) => candidate.id).join(", ");
+      const available = mission.automationCandidates.map((candidate) => candidate.id).join(", ") || "(none)";
       throw new Error(`Automation candidate "${options.missionId}" was not found. Available candidates: ${available}`);
     }
     return [selected];
   }
+  if (!mission.automationCandidates.length) return [];
   return options.allCandidates ? mission.automationCandidates : mission.automationCandidates.slice(0, options.missionLimit ?? 1);
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { QAContract, QAFlowMission } from "@preflight-scout/core";
-import { ACTION_ANALYSIS_RUNTIME, ACTION_EXECUTION_RUNTIME, runAutomationCandidates } from "./missions.js";
+import type { QAContract, QAFlowMission, QAMission } from "@preflight-scout/core";
+import { ACTION_ANALYSIS_RUNTIME, ACTION_EXECUTION_RUNTIME, runAutomationCandidates, selectAutomationCandidates } from "./missions.js";
 
 const contract: QAContract = {
   app: {},
@@ -39,5 +39,24 @@ describe("runAutomationCandidates", () => {
       headless: true,
       saveStorageState: "/tmp/repo/.preflight-scout/auth/session.json"
     })).rejects.toThrow("multi-mission run");
+  });
+
+  it("keeps all-manual analysis selectable without weakening explicit mission ids", () => {
+    const allManual: QAMission = {
+      id: "all-manual",
+      title: "Manual review",
+      risk: "medium",
+      summary: "No safe browser mission was generated.",
+      affectedAreas: [],
+      manualChecklist: ["Review the changed flow manually."],
+      edgeCases: [],
+      automationCandidates: [],
+      unknowns: ["A deterministic final-state assertion was unavailable."]
+    };
+
+    expect(selectAutomationCandidates(allManual)).toEqual([]);
+    expect(selectAutomationCandidates(allManual, { allCandidates: true })).toEqual([]);
+    expect(() => selectAutomationCandidates(allManual, { missionId: "missing" }))
+      .toThrow('Automation candidate "missing" was not found. Available candidates: (none)');
   });
 });

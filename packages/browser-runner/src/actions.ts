@@ -81,7 +81,7 @@ export async function executeDecision(
           await locator.first().waitFor({ state: "attached", timeout: 8000 });
           await assertUniqueVisibleTarget(locator, "assert");
           if (reviewedStep.action === "assert_text") {
-            if (!reviewedStep.expected) return blocked(stepId, `Reviewed assert_text step "${reviewedStep.id}" has no expected text.`);
+            if (!reviewedStep.expected?.trim()) return blocked(stepId, `Reviewed assert_text step "${reviewedStep.id}" has no nonblank expected text.`);
             const actual = await locator.textContent();
             if (!actual?.includes(reviewedStep.expected)) {
               return { stepId, status: "failed", message: `${decision.reason}: reviewed text assertion did not find ${JSON.stringify(reviewedStep.expected)}` };
@@ -160,6 +160,9 @@ export function checkActionSafety(
       return `Blocked assert: reviewed mission step "${step.id}" has incompatible action "${step.action}".`;
     }
     if (!step.target) return `Blocked assert: reviewed mission step "${step.id}" has no explicit target.`;
+    if (step.action === "assert_text" && !step.expected?.trim()) {
+      return `Blocked assert: reviewed assert_text step "${step.id}" has no nonblank expected text.`;
+    }
     if (!decision.target || !targetsEquivalent(step.target, decision.target)) {
       return `Blocked assert: target is not the exact reviewed target for mission step "${step.id}".`;
     }
