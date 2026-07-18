@@ -169,6 +169,9 @@ describe("resolveAgentCommand", () => {
   });
 
   it("propagates configured model and reasoning flags to built-in agents", () => {
+    const codexEffortSetting = (effort: string) => process.platform === "win32"
+      ? `model_reasoning_effort='${effort}'`
+      : `model_reasoning_effort="${effort}"`;
     const previousModel = process.env.PREFLIGHT_SCOUT_EXEC_MODEL;
     const previousEffort = process.env.PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT;
     process.env.PREFLIGHT_SCOUT_EXEC_MODEL = "test-model";
@@ -195,10 +198,10 @@ describe("resolveAgentCommand", () => {
         toolDenyPolicyPath: "/tmp/preflight-scout-deny-tools.toml"
       }, "probe prompt");
 
-      expect(codex.args).toEqual(expect.arrayContaining(["-m", "test-model", "-c", "model_reasoning_effort=\"high\""]));
+      expect(codex.args).toEqual(expect.arrayContaining(["-m", "test-model", "-c", codexEffortSetting("high")]));
       expect(claude.args).toEqual(expect.arrayContaining(["--model", "test-model", "--effort", "high"]));
-      expect(boundedProbe.args).toEqual(expect.arrayContaining(["-c", "model_reasoning_effort=\"low\""]));
-      expect(boundedProbe.args).not.toContain("model_reasoning_effort=\"high\"");
+      expect(boundedProbe.args).toEqual(expect.arrayContaining(["-c", codexEffortSetting("low")]));
+      expect(boundedProbe.args).not.toContain(codexEffortSetting("high"));
       expect(boundedProbe.args).toEqual(expect.arrayContaining(["--ignore-user-config", "--ignore-rules", "--disable", "plugins", "--sandbox", "read-only"]));
       expect(boundedProbe.args).not.toContain("workspace-write");
       expect(boundedProbe.args).not.toContain("sandbox_policy.network_access=enabled");
