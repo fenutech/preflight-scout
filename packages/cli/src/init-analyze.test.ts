@@ -190,6 +190,30 @@ describe("init followed by analyze", () => {
     await expect(access(marker)).rejects.toThrow();
   }, 30_000);
 
+  it.each(["analyze", "run"] as const)("%s rejects a contents-only ignored output with a re-included report before starting model calls", async (command) => {
+    const parent = await mkdtemp(path.join(tmpdir(), "preflight-scout-negated-output-fail-fast-"));
+    tempDirs.push(parent);
+    const demo = await createGenericDemoRepo({ output: path.join(parent, "repo") });
+    await writeFile(
+      path.join(demo.root, ".gitignore"),
+      "preflight-output/*\n!preflight-output/report.md\n"
+    );
+    const marker = path.join(parent, "agent-started");
+    const agentScript = path.join(parent, "must-not-start.mjs");
+    await writeFile(agentScript, `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "started");\n`);
+
+    await expect(runCli([
+      command,
+      "--root", demo.root,
+      "--base", "HEAD~1",
+      "--head", "HEAD",
+      "--output-dir", "preflight-output"
+    ], deterministicAgentEnv(agentScript))).rejects.toMatchObject({
+      stderr: expect.stringContaining("must be untracked and ignored by Git")
+    });
+    await expect(access(marker)).rejects.toThrow();
+  }, 30_000);
+
   it("keeps an explicitly selected external analysis directory reusable", async () => {
     const parent = await mkdtemp(path.join(tmpdir(), "preflight-scout-external-analysis-"));
     tempDirs.push(parent);

@@ -431,7 +431,8 @@ unique temporary path and published only if that same bundle is still current.
 An explicit `--output-dir` or
 artifact input outside the repository remains supported through its own
 canonical trusted boundary; contract-derived output stays confined beneath
-`.preflight-scout/runs/`.
+`.preflight-scout/runs/`. A repository-local explicit output must be excluded
+as a directory by Git; ignoring only its current contents is not sufficient.
 
 ## GitHub Action
 

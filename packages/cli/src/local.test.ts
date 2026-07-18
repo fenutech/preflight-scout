@@ -262,6 +262,40 @@ describe("loadEnvFile", () => {
     });
   });
 
+  it("accepts a directory exclusion even when a later child negation cannot take effect", async () => {
+    await writeFile(
+      path.join(dir, ".gitignore"),
+      "preflight-output/\n!preflight-output/report.md\n"
+    );
+
+    await expect(resolveAnalysisOutputDir(
+      dir,
+      "preflight-output",
+      undefined
+    )).resolves.toEqual({
+      directory: path.join(dir, "preflight-output"),
+      boundary: dir
+    });
+    await expect(execFileAsync(
+      "git",
+      ["check-ignore", "--quiet", "--", "preflight-output/report.md"],
+      { cwd: dir }
+    )).resolves.toBeDefined();
+  });
+
+  it("rejects an explicit output when Git ignores only its contents and re-includes a generated report", async () => {
+    await writeFile(
+      path.join(dir, ".gitignore"),
+      "preflight-output/*\n!preflight-output/report.md\n"
+    );
+
+    await expect(resolveAnalysisOutputDir(
+      dir,
+      "preflight-output",
+      undefined
+    )).rejects.toThrow("must be untracked and ignored by Git");
+  });
+
   it("rejects an explicit in-repository output directory containing tracked files", async () => {
     await mkdir(path.join(dir, "preflight-output"));
     await writeFile(path.join(dir, "preflight-output", "tracked.txt"), "tracked\n");
@@ -320,6 +354,28 @@ describe("loadEnvFile", () => {
         alias,
         undefined
       )).resolves.toEqual({ directory: output, boundary: dir });
+    } finally {
+      await rm(aliasParent, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === "win32")("rejects a lexical external alias when its canonical repository child can re-include generated files", async () => {
+    const output = path.join(dir, "preflight-output");
+    const aliasParent = await mkdtemp(path.join(tmpdir(), "preflight-scout-output-alias-"));
+    try {
+      await mkdir(output);
+      await writeFile(
+        path.join(dir, ".gitignore"),
+        "preflight-output/*\n!preflight-output/report.md\n"
+      );
+      const alias = path.join(aliasParent, "output-link");
+      await symlink(output, alias, "dir");
+
+      await expect(resolveAnalysisOutputDir(
+        dir,
+        alias,
+        undefined
+      )).rejects.toThrow("must be untracked and ignored by Git");
     } finally {
       await rm(aliasParent, { recursive: true, force: true });
     }

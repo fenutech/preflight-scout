@@ -484,6 +484,18 @@ async function assertExplicitRepoOutputDirectoryIsSafe(root: string, outputDir: 
   if (!relativePath) {
     throw explicitRepoOutputPathError("the repository root cannot be used as an artifact directory");
   }
+
+  // Git needs the path to exist as a directory to distinguish `output/`
+  // from a contents-only rule such as `output/*`. Materialize the requested
+  // directory before the ignore check, then re-check the filesystem boundary
+  // so a raced symlink or non-directory cannot become trusted.
+  try {
+    await fs.mkdir(outputDir, { recursive: true });
+    await assertPathHasNoSymlinks(root, outputDir, { allowMissing: false, leafType: "directory" });
+  } catch {
+    throw explicitRepoOutputPathError("it traverses an unsafe symbolic-link or non-directory path");
+  }
+
   try {
     const git = await createTrustedGit({ targetRoot: root });
     const { stdout } = await git.exec(["rev-parse", "--is-inside-work-tree"], { cwd: root });
@@ -491,7 +503,11 @@ async function assertExplicitRepoOutputDirectoryIsSafe(root: string, outputDir: 
     if (await gitPredicate(git, root, ["--literal-pathspecs", "ls-files", "--error-unmatch", "--", relativePath])) {
       throw explicitRepoOutputPathError("it must be untracked and ignored by Git");
     }
-    if (!await gitPredicate(git, root, ["check-ignore", "--quiet", "--", `${relativePath}/`])) {
+    // Require Git to exclude the directory itself, not merely a synthetic
+    // trailing-slash path. Contents-only patterns can match `dir/` while a
+    // later negation re-includes generated artifacts such as report.md. Once
+    // the parent directory itself is excluded, Git cannot re-include children.
+    if (!await gitPredicate(git, root, ["check-ignore", "--quiet", "--", relativePath])) {
       throw explicitRepoOutputPathError("it must be untracked and ignored by Git");
     }
   } catch (error) {
