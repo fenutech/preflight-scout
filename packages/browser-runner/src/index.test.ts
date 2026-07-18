@@ -408,13 +408,30 @@ describe("runBrowserMission", () => {
         </body>`);
         return;
       }
-      if (req.url === "/observation-output-reservation") {
+      if (req.url === "/observation-output-native-first") {
         const nativeControls = Array.from({ length: 100 }, (_, index) =>
+          `<button data-testid="native-control-${index}">Native control ${index}</button>`
+        ).join("");
+        const genericMarkers = Array.from({ length: 20 }, (_, index) =>
+          `<p role="status" data-testid="generic-status-${index}">Generic status ${index}</p>`
+        ).join("");
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end(`<!doctype html><body>
+          ${nativeControls}
+          ${genericMarkers}
+        </body>`);
+        return;
+      }
+      if (req.url === "/observation-output-generic-first") {
+        const genericMarkers = Array.from({ length: 100 }, (_, index) =>
+          `<p role="status" data-testid="generic-status-${index}">Generic status ${index}</p>`
+        ).join("");
+        const nativeControls = Array.from({ length: 1_000 }, (_, index) =>
           `<button data-testid="native-control-${index}">Native control ${index}</button>`
         ).join("");
         res.writeHead(200, { "content-type": "text/html" });
         res.end(`<!doctype html><body>
-          <p role="status" data-testid="generic-status-marker">GENERIC_STATUS_SENTINEL</p>
+          ${genericMarkers}
           ${nativeControls}
         </body>`);
         return;
@@ -510,7 +527,7 @@ describe("runBrowserMission", () => {
     let observationQueries = 0;
     document.querySelectorAll = (...args) => {
       observationQueries += 1;
-      if (observationQueries === 3) throw new Error('Final DOM inventory failed');
+      if (observationQueries === 5) throw new Error('Final DOM inventory failed');
       return querySelectorAll(...args);
     };
   </script>
@@ -672,6 +689,11 @@ describe("runBrowserMission", () => {
         action: "click",
         policyLabel: "click",
         target: "testid=reveal-alert"
+      }, {
+        id: "verify-revealed-alert",
+        instruction: "Verify the reviewed alert is visible after the reveal action.",
+        action: "assert_visible",
+        target: "testid=promo-error"
       }]
     }, {
       baseUrl,
@@ -830,19 +852,19 @@ describe("runBrowserMission", () => {
     await expect(stat(path.join(runOutputDir, "final-observation.json"))).rejects.toThrow();
   });
 
-  it("reserves observation output for generic semantic markers", async () => {
+  it("keeps earlier native controls ahead of later generic markers", async () => {
     const llm = new CapturingBlockedLLM();
     const result = await runBrowserMission({
-      id: "observation-output-reservation",
-      title: "Retain generic semantic observations",
+      id: "observation-output-native-first",
+      title: "Preserve native control order",
       risk: "medium",
-      startPath: "/observation-output-reservation",
-      reason: ["Exercise bounded evidence selection across candidate lanes."],
+      startPath: "/observation-output-native-first",
+      reason: ["Later generic markers must not evict earlier actionable controls."],
       steps: [{
-        id: "verify-generic-status",
-        instruction: "Verify the reviewed generic status marker.",
+        id: "verify-native-control",
+        instruction: "Verify the reviewed native control.",
         action: "assert_visible",
-        target: "testid=generic-status-marker"
+        target: "testid=native-control-79"
       }]
     }, {
       baseUrl,
@@ -855,7 +877,7 @@ describe("runBrowserMission", () => {
         unknowns: []
       },
       llm,
-      outputDir: path.join(outputDir, "observation-output-reservation"),
+      outputDir: path.join(outputDir, "observation-output-native-first"),
       headless: true,
       maxTurns: 1
     });
@@ -864,15 +886,44 @@ describe("runBrowserMission", () => {
     expect(result.status).toBe("blocked");
     expect(interactive).toHaveLength(80);
     expect(interactive).toContainEqual(expect.objectContaining({
-      testid: "generic-status-marker",
-      role: "status",
-      text: "GENERIC_STATUS_SENTINEL"
+      testid: "native-control-79",
+      text: "Native control 79"
     }));
-    expect(interactive).toContainEqual(expect.objectContaining({
-      testid: "native-control-0",
-      text: "Native control 0"
-    }));
-    expect(interactive?.[0]).toEqual(expect.objectContaining({ testid: "generic-status-marker" }));
+    expect(interactive?.[0]).toEqual(expect.objectContaining({ testid: "native-control-0" }));
+    expect(interactive?.[79]).toEqual(expect.objectContaining({ testid: "native-control-79" }));
+    expect(JSON.stringify(interactive)).not.toContain("generic-status-");
+  });
+
+  it("keeps sampled native controls behind an early generic flood", async () => {
+    const llm = new CapturingBlockedLLM();
+    const result = await runBrowserMission({
+      id: "observation-output-generic-first",
+      title: "Retain actionable controls behind generic markers",
+      risk: "medium",
+      startPath: "/observation-output-generic-first",
+      reason: ["An early generic flood must not consume every actionable-control evidence slot."],
+      steps: [{
+        id: "verify-tail-native-control",
+        instruction: "Verify the reviewed native control sampled from the tail.",
+        action: "assert_visible",
+        target: "testid=native-control-999"
+      }]
+    }, {
+      baseUrl,
+      contract: basicContract(),
+      llm,
+      outputDir: path.join(outputDir, "observation-output-generic-first"),
+      headless: true,
+      maxTurns: 1
+    });
+
+    const interactive = llm.lastPayload?.currentObservation?.interactive;
+    expect(result.status).toBe("blocked");
+    expect(interactive).toHaveLength(80);
+    expect(interactive?.filter((item) => item.testid?.startsWith("native-control-"))).toHaveLength(20);
+    expect(interactive).toContainEqual(expect.objectContaining({ testid: "generic-status-0" }));
+    expect(interactive).toContainEqual(expect.objectContaining({ testid: "native-control-0" }));
+    expect(interactive).toContainEqual(expect.objectContaining({ testid: "native-control-999" }));
   });
 
   it("refuses immediate finish_pass before the reviewed assertion is covered", async () => {
