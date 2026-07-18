@@ -34,21 +34,27 @@ export async function observe(page: Page, consoleErrors: string[], networkErrors
     width: document.documentElement.scrollWidth,
     height: document.documentElement.scrollHeight
   }));
-  const interactive = await page.evaluate(({ candidateCount, count, genericElementReserve, valueLimit }) => {
+  const interactive: BrowserObservation["interactive"] = await page.evaluate(({ candidateCount, count, genericElementReserve, valueLimit }) => {
     const clip = (value: string | null | undefined, limit = valueLimit): string | undefined => {
       const trimmed = value?.trim();
       return trimmed ? trimmed.slice(0, limit) : undefined;
     };
     const isRendered = (element: Element): boolean => {
-      if (element instanceof HTMLElement && element.hidden) return false;
-      const style = window.getComputedStyle(element);
-      if (style.display === "none"
-        || style.visibility === "hidden"
-        || style.visibility === "collapse") {
+      try {
+        if (element instanceof HTMLElement && element.hidden) return false;
+        const style = window.getComputedStyle(element);
+        if (style.display === "none"
+          || style.visibility === "hidden"
+          || style.visibility === "collapse") {
+          return false;
+        }
+        const bounds = element.getBoundingClientRect();
+        return bounds.width > 0 && bounds.height > 0;
+      } catch {
+        // The inspected page owns these DOM APIs. A patched or throwing
+        // implementation cannot become trusted locator evidence.
         return false;
       }
-      const bounds = element.getBoundingClientRect();
-      return bounds.width > 0 && bounds.height > 0;
     };
     const nativeCandidates = document.querySelectorAll("a,button,input,textarea,select");
     const genericCandidates = document.querySelectorAll(
@@ -135,7 +141,7 @@ export async function observe(page: Page, consoleErrors: string[], networkErrors
     count: MAX_INTERACTIVE_ELEMENTS,
     genericElementReserve: GENERIC_INTERACTIVE_RESERVE,
     valueLimit: MAX_INTERACTIVE_VALUE_CHARS
-  });
+  }).catch(() => []);
 
   return {
     url: redactText(page.url().slice(0, MAX_URL_CHARS)),

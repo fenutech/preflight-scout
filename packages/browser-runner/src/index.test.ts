@@ -319,9 +319,12 @@ describe("runBrowserMission", () => {
         res.end(`<!doctype html><body>
           ${hiddenFlood}
           <button data-testid="beyond-layout-flood">Control beyond the hostile layout flood</button>
+          <output data-testid="layout-check-count">MAX_LAYOUT_CHECKS:0</output>
           <script>
             let layoutChecks = 0;
+            let maxLayoutChecks = 0;
             let resetPending = false;
+            const counter = document.querySelector('[data-testid="layout-check-count"]');
             const recordLayoutCheck = () => {
               if (!resetPending) {
                 resetPending = true;
@@ -331,7 +334,8 @@ describe("runBrowserMission", () => {
                 }, 0);
               }
               layoutChecks += 1;
-              if (layoutChecks > 2100) throw new Error("UNBOUNDED_OBSERVATION_LAYOUT_SCAN");
+              maxLayoutChecks = Math.max(maxLayoutChecks, layoutChecks);
+              counter.textContent = 'MAX_LAYOUT_CHECKS:' + maxLayoutChecks;
             };
             const getComputedStyle = window.getComputedStyle.bind(window);
             window.getComputedStyle = (...args) => {
@@ -341,6 +345,27 @@ describe("runBrowserMission", () => {
             const getBoundingClientRect = Element.prototype.getBoundingClientRect;
             Element.prototype.getBoundingClientRect = function () {
               recordLayoutCheck();
+              return getBoundingClientRect.call(this);
+            };
+          </script>
+        </body>`);
+        return;
+      }
+      if (req.url === "/observation-hostile-visibility-api") {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end(`<!doctype html><body>
+          <button data-testid="style-throw">Untrusted style control</button>
+          <button data-testid="bounds-throw">Untrusted bounds control</button>
+          <button data-testid="safe-visibility-control">Safe visibility control</button>
+          <script>
+            const getComputedStyle = window.getComputedStyle.bind(window);
+            window.getComputedStyle = (element, ...args) => {
+              if (element.dataset?.testid === 'style-throw') throw new Error('PAGE_STYLE_OVERRIDE');
+              return getComputedStyle(element, ...args);
+            };
+            const getBoundingClientRect = Element.prototype.getBoundingClientRect;
+            Element.prototype.getBoundingClientRect = function () {
+              if (this.dataset?.testid === 'bounds-throw') throw new Error('PAGE_BOUNDS_OVERRIDE');
               return getBoundingClientRect.call(this);
             };
           </script>
@@ -689,6 +714,49 @@ describe("runBrowserMission", () => {
       text: "Control beyond the hostile layout flood"
     }));
     expect(result.evidence?.finalObservationPath).toContain("final-observation.json");
+    const finalObservation = JSON.parse(await readFile(result.evidence!.finalObservationPath!, "utf8")) as { text: string };
+    const observedMaximum = Number(finalObservation.text.match(/MAX_LAYOUT_CHECKS:(\d+)/)?.[1]);
+    expect(observedMaximum).toBeGreaterThan(0);
+    expect(observedMaximum).toBeLessThanOrEqual(2100);
+  });
+
+  it("treats page-overridden visibility APIs as untrusted candidate evidence", async () => {
+    const llm = new CapturingBlockedLLM();
+    const result = await runBrowserMission({
+      id: "observation-hostile-visibility-api",
+      title: "Contain page-owned visibility failures",
+      risk: "high",
+      startPath: "/observation-hostile-visibility-api",
+      reason: ["Page-controlled DOM APIs must not abort browser QA."],
+      steps: [{
+        id: "verify-safe-visibility-control",
+        instruction: "Verify the safe control that remains usable.",
+        action: "assert_visible",
+        target: "testid=safe-visibility-control"
+      }]
+    }, {
+      baseUrl,
+      contract: {
+        app: { name: "Hostile visibility fixture" },
+        criticalFlows: [],
+        sensitiveAreas: [],
+        dangerousActions: { allowed: [], requireApproval: [], forbidden: [] },
+        testData: {},
+        unknowns: []
+      },
+      llm,
+      outputDir: path.join(outputDir, "observation-hostile-visibility-api"),
+      headless: true,
+      maxTurns: 1
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(llm.lastPayload?.currentObservation?.interactive).toContainEqual(expect.objectContaining({
+      testid: "safe-visibility-control",
+      text: "Safe visibility control"
+    }));
+    expect(JSON.stringify(llm.lastPayload?.currentObservation?.interactive)).not.toContain("style-throw");
+    expect(JSON.stringify(llm.lastPayload?.currentObservation?.interactive)).not.toContain("bounds-throw");
   });
 
   it("reserves observation output for generic semantic markers", async () => {
