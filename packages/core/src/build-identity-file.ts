@@ -225,9 +225,10 @@ function comparablePathStats(
     assertSameFileIdentity(expectedLeaf, leafBefore, failurePhase(failure), platform);
 
     // On Windows, stat(path) and fstat(handle) both query an opened target
-    // handle and expose the file ID as ino. The volume ID may legitimately be
-    // zero, but it must remain equal across observations. lstat remains the
-    // separate non-following leaf guard. No metadata-only fallback is allowed.
+    // handle and expose the file ID as ino. The volume ID is not comparable
+    // across these Windows query paths, so it is deliberately ignored there.
+    // lstat remains the separate non-following leaf guard. No metadata-only
+    // fallback is allowed.
     const comparable = platform === "win32" ? operations.stat(filePath) : leafBefore;
     const leafAfter = platform === "win32" ? operations.lstat(filePath) : leafBefore;
     if (
@@ -297,7 +298,7 @@ function assertSameFileIdentity(
 ): void {
   assertComparableIdentity(left, phase, platform);
   assertComparableIdentity(right, phase, platform);
-  if (left.dev !== right.dev) {
+  if (platform !== "win32" && left.dev !== right.dev) {
     throw new BuildIdentityReadError(`device-identity-mismatch-${phase}`);
   }
   if (left.ino !== right.ino) {
@@ -310,12 +311,10 @@ function assertComparableIdentity(
   phase: IdentityFailurePhase,
   platform: NodeJS.Platform
 ): void {
-  // libuv can report a zero Windows volume/device ID when the underlying file
-  // system does not implement FileFsVolumeInformation, while still exposing
-  // the exact file ID as ino. The guarded same-path lstat/stat/fstat sequence
-  // therefore permits a consistently zero Windows dev but never a missing file
-  // ID. POSIX continues to require both components of the object identity.
-  if (stats.dev < 0n || (platform !== "win32" && stats.dev === 0n)) {
+  // Windows stat(path) and fstat(handle) can expose unavailable or inconsistent
+  // volume IDs for the same file. The exact file ID remains available as ino,
+  // so Windows identity is file-ID based. POSIX requires both components.
+  if (platform !== "win32" && stats.dev <= 0n) {
     throw new BuildIdentityReadError(`device-identity-unavailable-${phase}`);
   }
   if (stats.ino === 0n) {

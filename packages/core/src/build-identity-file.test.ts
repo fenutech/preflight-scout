@@ -65,7 +65,7 @@ describe("build identity file safety", () => {
 
     expectFailure(
       () => readBuildIdentityFileSync("C:\\fixture\\package.json", 16, { platform: "win32", operations }),
-      "device-identity-mismatch-before-read"
+      "file-id-mismatch-before-read"
     );
   });
 
@@ -84,7 +84,7 @@ describe("build identity file safety", () => {
 
     expectFailure(
       () => readBuildIdentityFileSync("C:\\fixture\\package.json", 16, { platform: "win32", operations }),
-      "device-identity-mismatch-before-read"
+      "file-id-mismatch-before-read"
     );
   });
 
@@ -123,17 +123,39 @@ describe("build identity file safety", () => {
     );
   });
 
-  it("rejects a Windows device identity change even when one observation is zero", () => {
+  it("does not treat Windows device values as comparable when the exact file ID is stable", () => {
     const withoutVolumeIdentity = identityStats({ dev: 0n, ino: 10n, size: 3n });
     const withVolumeIdentity = identityStats({ dev: 1n, ino: 10n, size: 3n });
+    let read = false;
     const operations = fakeOperations({
       lstat: () => withoutVolumeIdentity,
       stat: () => withVolumeIdentity,
-      fstat: () => withVolumeIdentity
+      fstat: () => withVolumeIdentity,
+      read: (_descriptor, buffer) => {
+        if (read) return 0;
+        read = true;
+        buffer.write("ok\n");
+        return 3;
+      }
+    });
+
+    expect(readBuildIdentityFileSync(
+      "C:\\fixture\\package.json",
+      16,
+      { platform: "win32", operations }
+    ).toString("utf8")).toBe("ok\n");
+  });
+
+  it("still rejects a POSIX device identity change for the same inode", () => {
+    const pathStats = identityStats({ dev: 1n, ino: 10n, size: 3n });
+    const handleStats = identityStats({ dev: 2n, ino: 10n, size: 3n });
+    const operations = fakeOperations({
+      lstat: () => pathStats,
+      fstat: () => handleStats
     });
 
     expectFailure(
-      () => readBuildIdentityFileSync("C:\\fixture\\package.json", 16, { platform: "win32", operations }),
+      () => readBuildIdentityFileSync("/fixture/package.json", 16, { platform: "linux", operations }),
       "device-identity-mismatch-before-read"
     );
   });
@@ -217,7 +239,7 @@ describe("build identity file safety", () => {
 
     expectFailure(
       () => readBuildIdentityFileSync("C:\\fixture\\package.json", 16, { platform: "win32", operations }),
-      "device-identity-mismatch-while-read"
+      "file-id-mismatch-while-read"
     );
   });
 
