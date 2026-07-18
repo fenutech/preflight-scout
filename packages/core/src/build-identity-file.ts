@@ -95,7 +95,7 @@ export function buildIdentityOpenFlags(
 ): number {
   // Node does not support O_NOFOLLOW on Windows. The leaf lstat guards and
   // exact stat(path)-to-fstat(handle) identity checks below are mandatory
-  // there; a runtime that cannot provide comparable IDs fails closed.
+  // there; a runtime that cannot provide a comparable file ID fails closed.
   return fsConstants.O_RDONLY | (platform === "win32" ? 0 : (noFollow ?? 0));
 }
 
@@ -152,8 +152,8 @@ export function readBuildIdentityFileSync(
     ) {
       throw new BuildIdentityReadError("changed-before-read");
     }
-    assertSameFileSnapshot(pathBefore, handleBefore, "before-read");
-    assertSameFileSnapshot(pathAtOpen, handleBefore, "before-read");
+    assertSameFileSnapshot(pathBefore, handleBefore, "before-read", platform);
+    assertSameFileSnapshot(pathAtOpen, handleBefore, "before-read", platform);
 
     const contents = readDescriptorBounded(operations, descriptor, maxBytes);
 
@@ -177,8 +177,8 @@ export function readBuildIdentityFileSync(
     ) {
       throw new BuildIdentityReadError("changed-while-read");
     }
-    assertSameFileSnapshot(handleBefore, handleAfter, "while-read");
-    assertSameFileSnapshot(pathAfter, handleAfter, "while-read");
+    assertSameFileSnapshot(handleBefore, handleAfter, "while-read", platform);
+    assertSameFileSnapshot(pathAfter, handleAfter, "while-read", platform);
     return contents;
   } finally {
     try {
@@ -222,11 +222,12 @@ function comparablePathStats(
     if (!safeLeaf(leafBefore, limit)) {
       throw new BuildIdentityReadError(failure);
     }
-    assertSameFileIdentity(expectedLeaf, leafBefore, failurePhase(failure));
+    assertSameFileIdentity(expectedLeaf, leafBefore, failurePhase(failure), platform);
 
     // On Windows, stat(path) and fstat(handle) both query an opened target
-    // handle and expose comparable dev/ino values. lstat remains the separate
-    // non-following leaf guard. No metadata-only identity fallback is allowed.
+    // handle and expose the file ID as ino. The volume ID may legitimately be
+    // zero, but it must remain equal across observations. lstat remains the
+    // separate non-following leaf guard. No metadata-only fallback is allowed.
     const comparable = platform === "win32" ? operations.stat(filePath) : leafBefore;
     const leafAfter = platform === "win32" ? operations.lstat(filePath) : leafBefore;
     if (
@@ -235,9 +236,9 @@ function comparablePathStats(
     ) {
       throw new BuildIdentityReadError(failure);
     }
-    assertSameFileIdentity(leafBefore, comparable, failurePhase(failure));
-    assertSameFileIdentity(comparable, leafAfter, failurePhase(failure));
-    assertSameFileIdentity(expectedLeaf, leafAfter, failurePhase(failure));
+    assertSameFileIdentity(leafBefore, comparable, failurePhase(failure), platform);
+    assertSameFileIdentity(comparable, leafAfter, failurePhase(failure), platform);
+    assertSameFileIdentity(expectedLeaf, leafAfter, failurePhase(failure), platform);
     return comparable;
   } catch (error) {
     if (error instanceof BuildIdentityReadError) throw error;
@@ -291,10 +292,11 @@ function failurePhase(
 function assertSameFileIdentity(
   left: BuildIdentityStats,
   right: BuildIdentityStats,
-  phase: IdentityFailurePhase
+  phase: IdentityFailurePhase,
+  platform: NodeJS.Platform
 ): void {
-  assertComparableIdentity(left, phase);
-  assertComparableIdentity(right, phase);
+  assertComparableIdentity(left, phase, platform);
+  assertComparableIdentity(right, phase, platform);
   if (left.dev !== right.dev) {
     throw new BuildIdentityReadError(`device-identity-mismatch-${phase}`);
   }
@@ -305,11 +307,15 @@ function assertSameFileIdentity(
 
 function assertComparableIdentity(
   stats: BuildIdentityStats,
-  phase: IdentityFailurePhase
+  phase: IdentityFailurePhase,
+  platform: NodeJS.Platform
 ): void {
-  // A zero device or file ID does not provide a usable object identity. Never
-  // silently degrade to mutable metadata when the platform cannot supply both.
-  if (stats.dev === 0n) {
+  // libuv can report a zero Windows volume/device ID when the underlying file
+  // system does not implement FileFsVolumeInformation, while still exposing
+  // the exact file ID as ino. The guarded same-path lstat/stat/fstat sequence
+  // therefore permits a consistently zero Windows dev but never a missing file
+  // ID. POSIX continues to require both components of the object identity.
+  if (stats.dev < 0n || (platform !== "win32" && stats.dev === 0n)) {
     throw new BuildIdentityReadError(`device-identity-unavailable-${phase}`);
   }
   if (stats.ino === 0n) {
@@ -320,9 +326,10 @@ function assertComparableIdentity(
 function assertSameFileSnapshot(
   left: BuildIdentityStats,
   right: BuildIdentityStats,
-  phase: IdentityFailurePhase
+  phase: IdentityFailurePhase,
+  platform: NodeJS.Platform
 ): void {
-  assertSameFileIdentity(left, right, phase);
+  assertSameFileIdentity(left, right, phase, platform);
   if (
     left.mode !== right.mode
     || left.nlink !== right.nlink

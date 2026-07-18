@@ -88,17 +88,53 @@ describe("build identity file safety", () => {
     );
   });
 
-  it("fails closed when Windows does not expose a comparable device identity", () => {
+  it("uses the exact Windows file ID when the platform reports a zero device identity", () => {
     const degenerate = identityStats({ dev: 0n, ino: 10n, size: 3n });
+    let read = false;
     const operations = fakeOperations({
       lstat: () => degenerate,
       stat: () => degenerate,
+      fstat: () => degenerate,
+      read: (_descriptor, buffer) => {
+        if (read) return 0;
+        read = true;
+        buffer.write("ok\n");
+        return 3;
+      }
+    });
+
+    expect(readBuildIdentityFileSync(
+      "C:\\fixture\\package.json",
+      16,
+      { platform: "win32", operations }
+    ).toString("utf8")).toBe("ok\n");
+  });
+
+  it("still requires a nonzero device identity on POSIX", () => {
+    const degenerate = identityStats({ dev: 0n, ino: 10n, size: 3n });
+    const operations = fakeOperations({
+      lstat: () => degenerate,
       fstat: () => degenerate
     });
 
     expectFailure(
-      () => readBuildIdentityFileSync("C:\\fixture\\package.json", 16, { platform: "win32", operations }),
+      () => readBuildIdentityFileSync("/fixture/package.json", 16, { platform: "linux", operations }),
       "device-identity-unavailable-before-read"
+    );
+  });
+
+  it("rejects a Windows device identity change even when one observation is zero", () => {
+    const withoutVolumeIdentity = identityStats({ dev: 0n, ino: 10n, size: 3n });
+    const withVolumeIdentity = identityStats({ dev: 1n, ino: 10n, size: 3n });
+    const operations = fakeOperations({
+      lstat: () => withoutVolumeIdentity,
+      stat: () => withVolumeIdentity,
+      fstat: () => withVolumeIdentity
+    });
+
+    expectFailure(
+      () => readBuildIdentityFileSync("C:\\fixture\\package.json", 16, { platform: "win32", operations }),
+      "device-identity-mismatch-before-read"
     );
   });
 
@@ -119,6 +155,21 @@ describe("build identity file safety", () => {
   it("distinguishes a path-versus-handle file-ID mismatch", () => {
     const pathStats = identityStats({ dev: 1n, ino: 10n, size: 3n });
     const handleStats = identityStats({ dev: 1n, ino: 20n, size: 3n });
+    const operations = fakeOperations({
+      lstat: () => pathStats,
+      stat: () => pathStats,
+      fstat: () => handleStats
+    });
+
+    expectFailure(
+      () => readBuildIdentityFileSync("C:\\fixture\\package.json", 16, { platform: "win32", operations }),
+      "file-id-mismatch-before-read"
+    );
+  });
+
+  it("rejects a Windows A/B swap by file ID when both device identities are zero", () => {
+    const pathStats = identityStats({ dev: 0n, ino: 10n, size: 3n });
+    const handleStats = identityStats({ dev: 0n, ino: 20n, size: 3n });
     const operations = fakeOperations({
       lstat: () => pathStats,
       stat: () => pathStats,
