@@ -312,7 +312,9 @@ describe("runBrowserMission", () => {
         return;
       }
       if (req.url === "/observation-layout-bound") {
-        const hiddenFlood = Array.from({ length: 10_000 }, (_, index) =>
+        // Stay above the 1,000-candidate visibility-check budget without
+        // making fixture HTML generation dominate the bounded-layout test.
+        const hiddenFlood = Array.from({ length: 1_250 }, (_, index) =>
           `<span role="status" data-testid="layout-flood-${index}" style="display:block;width:0;height:0;overflow:hidden"></span>`
         ).join("");
         res.writeHead(200, { "content-type": "text/html" });
