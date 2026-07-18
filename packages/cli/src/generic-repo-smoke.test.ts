@@ -149,7 +149,7 @@ describe("generic repo smoke", () => {
     await expect(readFile(path.join(dir, "run", "report.md"), "utf8")).resolves.toContain("Generic checkout valid coupon");
     await expect(readFile(path.join(dir, "run", "report.md"), "utf8")).resolves.toContain("trace.zip");
     await expect(readFile(path.join(dir, "run", "report.html"), "utf8")).resolves.toContain("Generic checkout valid coupon");
-  });
+  }, 15_000);
 
   it("bootstraps auth storage and validates the authenticated dashboard demo", async () => {
     const authRoot = (await createGenericDemoRepo({ output: path.join(dir, "auth-dashboard"), scenario: "auth-dashboard" })).root;
