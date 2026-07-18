@@ -114,10 +114,13 @@ class UnexpectedDecisionLLM implements LLMClient {
 
 class CapturingBlockedLLM implements LLMClient {
   lastPrompt = "";
+  lastPayload?: { currentObservation?: { interactive?: Array<{ testid?: string; text?: string }> } };
 
   async completeJson<T>(messages: LLMMessage[], options: StructuredJsonOptions<T>): Promise<T> {
     if (options.schemaName !== "browser_decision") throw new Error(`Unexpected schema in capture LLM: ${options.schemaName}`);
     this.lastPrompt = messages.map((message) => message.content).join("\n");
+    const payload = messages.at(-1)?.content.split("\n\nThe current browser screenshot")[0] ?? "{}";
+    this.lastPayload = JSON.parse(payload) as typeof this.lastPayload;
     return {
       thought: "Stop after bounded observation.",
       action: "blocked",
@@ -670,7 +673,10 @@ describe("runBrowserMission", () => {
     });
 
     expect(result.status).toBe("blocked");
-    expect(llm.lastPrompt).toContain("Control beyond the hostile layout flood");
+    expect(llm.lastPayload?.currentObservation?.interactive).toContainEqual(expect.objectContaining({
+      testid: "beyond-layout-flood",
+      text: "Control beyond the hostile layout flood"
+    }));
     expect(result.evidence?.finalObservationPath).toContain("final-observation.json");
   });
 

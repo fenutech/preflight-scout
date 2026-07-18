@@ -49,15 +49,51 @@ export async function observe(page: Page, consoleErrors: string[], networkErrors
       const bounds = element.getBoundingClientRect();
       return bounds.width > 0 && bounds.height > 0;
     };
-    const candidates = document.querySelectorAll("a,button,input,textarea,select,[role],[data-testid]");
+    const nativeCandidates = document.querySelectorAll("a,button,input,textarea,select");
+    const genericCandidates = document.querySelectorAll(
+      "[role]:not(a,button,input,textarea,select),[data-testid]:not(a,button,input,textarea,select)"
+    );
     const nodes: Element[] = [];
-    // Bound hostile candidate floods before per-node style/layout work while
-    // retaining enough headroom for ordinary hidden markup before a control.
-    const scanLimit = Math.min(candidates.length, candidateCount);
-    for (let index = 0; index < scanLimit && nodes.length < count; index += 1) {
-      const candidate = candidates.item(index);
-      if (isRendered(candidate)) nodes.push(candidate);
-    }
+    const checkedCandidates = new Set<Element>();
+    let remainingVisibilityChecks = candidateCount;
+    const prioritizedIndices = (length: number, limit: number): number[] => {
+      const bounded = Math.min(length, Math.max(0, limit));
+      if (bounded === 0) return [];
+      if (length <= bounded) return Array.from({ length }, (_, index) => index);
+      const prefixCount = Math.ceil(bounded / 2);
+      const indices = Array.from({ length: prefixCount }, (_, index) => index);
+      const spreadCount = bounded - prefixCount;
+      if (spreadCount === 1) indices.push(length - 1);
+      else if (spreadCount > 1) {
+        const spreadStart = prefixCount;
+        const spreadRange = length - 1 - spreadStart;
+        for (let index = 0; index < spreadCount; index += 1) {
+          indices.push(spreadStart + Math.floor((index * spreadRange) / (spreadCount - 1)));
+        }
+      }
+      return indices;
+    };
+    const collectRendered = (candidates: NodeListOf<Element>, checkLimit: number): void => {
+      for (const index of prioritizedIndices(candidates.length, Math.min(checkLimit, remainingVisibilityChecks))) {
+        if (nodes.length >= count || remainingVisibilityChecks === 0) return;
+        const candidate = candidates.item(index);
+        if (checkedCandidates.has(candidate)) continue;
+        checkedCandidates.add(candidate);
+        remainingVisibilityChecks -= 1;
+        if (isRendered(candidate)) nodes.push(candidate);
+      }
+    };
+    // Native controls get an independent priority lane, so generic semantic
+    // marker floods cannot hide the controls needed for safe interaction.
+    let nativeCheckLimit = Math.min(nativeCandidates.length, Math.ceil(candidateCount / 2));
+    let genericCheckLimit = Math.min(genericCandidates.length, candidateCount - nativeCheckLimit);
+    let unassignedChecks = candidateCount - nativeCheckLimit - genericCheckLimit;
+    const extraNativeChecks = Math.min(unassignedChecks, nativeCandidates.length - nativeCheckLimit);
+    nativeCheckLimit += extraNativeChecks;
+    unassignedChecks -= extraNativeChecks;
+    genericCheckLimit += Math.min(unassignedChecks, genericCandidates.length - genericCheckLimit);
+    collectRendered(nativeCandidates, nativeCheckLimit);
+    collectRendered(genericCandidates, genericCheckLimit);
     return nodes.map((node) => {
       const element = node as HTMLElement;
       const input = node as HTMLInputElement;
