@@ -247,6 +247,27 @@ describe("human report", () => {
     expect(summary.releaseDecision.nextSteps.join("\n")).toContain("Run the suggested browser missions");
   });
 
+  it("reports an all-manual analysis without suggesting nonexistent browser missions", () => {
+    const allManualMission: QAMission = {
+      ...mission,
+      automationCandidates: [],
+      unknowns: ["The final state has no deterministic selector."]
+    };
+    const summary = buildHumanReportSummary({ impactMap, mission: allManualMission });
+    const markdown = renderHumanReport({ impactMap, mission: allManualMission });
+    const html = renderHumanReportHtml({ impactMap, mission: allManualMission });
+
+    expect(summary.verdict).toBe("no_browser_evidence");
+    expect(summary.releaseDecision.status).toBe("needs_browser_evidence");
+    expect(summary.releaseDecision.reason).toContain("manual checks only");
+    expect(summary.releaseDecision.nextSteps.join("\n")).not.toContain("Run the suggested browser missions");
+    expect(markdown).toContain("No runnable browser mission was generated");
+    expect(markdown).toContain("no browser evidence was produced");
+    expect(markdown).not.toContain("### Suggested browser checks");
+    expect(html).toContain("No runnable browser mission was generated");
+    expect(html).not.toContain("class=\"suggested-missions\"");
+  });
+
   it("renders only regular evidence files beneath the run directory", async () => {
     const missionDir = path.join(runDir, "auto-checkout");
     const safeEvidence = path.join(missionDir, "safe evidence (1).png");

@@ -119,6 +119,8 @@ export async function runBrowserMission(mission: QAFlowMission, options: Browser
   const consoleErrors: string[] = [];
   const networkErrors: string[] = [];
   const coveredStepIds = new Set<string>();
+  const freshCompletionAssertionStepIds = new Set<string>();
+  const completionAssertionStepIds = new Set(completionAssertionsAfterFinalStateChange(mission).map((step) => step.id));
   let loginSubmissionObserved = false;
   let initialSessionFingerprint: string | undefined;
   let finalResult: MissionRunResult | undefined;
@@ -191,6 +193,7 @@ export async function runBrowserMission(mission: QAFlowMission, options: Browser
           context,
           page,
           coveredStepIds,
+          freshCompletionAssertionStepIds,
           loginSubmissionObserved,
           initialSessionFingerprint
         });
@@ -244,10 +247,14 @@ export async function runBrowserMission(mission: QAFlowMission, options: Browser
       });
       results.push(result);
       if (result.status === "passed") {
-        if (decision.missionStepId) coveredStepIds.add(decision.missionStepId);
         const reviewedStep = decision.missionStepId
           ? mission.steps.find((candidate) => candidate.id === decision.missionStepId)
           : undefined;
+        if (invalidatesCompletionEvidence(decision.action)) freshCompletionAssertionStepIds.clear();
+        if (decision.missionStepId) coveredStepIds.add(decision.missionStepId);
+        if (reviewedStep && decision.action === "assert" && completionAssertionStepIds.has(reviewedStep.id)) {
+          freshCompletionAssertionStepIds.add(reviewedStep.id);
+        }
         if (reviewedStep?.action === "login" && (decision.action === "click" || decision.action === "press")) {
           loginSubmissionObserved = true;
         }
@@ -312,6 +319,20 @@ export async function runBrowserMission(mission: QAFlowMission, options: Browser
         if (!navigation.violation) {
           finalizationProblem = "Browser finalization failed closed because the final same-origin state could not be observed safely.";
         }
+      }
+    }
+    if (finalResult?.status === "passed" && !navigation.violation && !page.isClosed()) {
+      try {
+        const assertionProblem = await revalidateCompletionAssertionsAtFinalization({
+          mission,
+          page,
+          options,
+          approvals,
+          navigation
+        });
+        finalizationProblem ??= assertionProblem;
+      } catch {
+        finalizationProblem ??= "Browser finalization failed closed because reviewed completion assertions could not be re-evaluated safely.";
       }
     }
     if (!page.isClosed()) {
@@ -554,8 +575,9 @@ If a previous browser action failed, recover like a human tester: use the screen
 If a previous fill action passed and the same field is still visibly filled, move to the next required credential or assertion instead of filling the same field again.
 For login missions, authenticate the configured existing user only from the reviewed mission startPath. Do not discover or substitute another login URL. After entering a credential field successfully, use the observed page state to move toward the next required credential, safe submit action, and exact reviewed signed-in assertion instead of repeating the same completed action.
 Every goto, click, fill, or press must name the exact reviewed missionStepId it implements. For non-login steps, its target must match the reviewed target; do not substitute an unrelated live control. Login steps may discover live login controls, but remain bound to the exact reviewed login step id and contract login permission.
-Assert actions must name an exact reviewed assert_visible/assert_text missionStepId. Omit target and value for assert actions: the runner binds and executes the reviewed target and expected text, not an LLM substitute. finish_pass is refused until every executable reviewed step is covered and at least one reviewed assertion passes. Login missions additionally require the exact configured signed-in marker, a safe credential-form submission, a changed cookie/storage session, and disappearance of the credential form.
-Before returning finish_fail because an expected action is missing, carefully inspect currentObservation.text, currentObservation.interactive, and the screenshot. Do not claim an element is absent when it appears in the observation.
+Assert actions must name an exact reviewed assert_visible/assert_text missionStepId. Omit target and value for assert actions: the runner binds and executes the reviewed target and expected text, not an LLM substitute. finish_pass is refused until every executable reviewed step is covered and every declared completion assertion after the mission's final reviewed state-changing step has passed since the latest goto, click, fill, press, wait, scroll, or viewport change. If a completion assertion ran early, rerun it after the last browser-state change. Intermediate assertions remain useful evidence but cannot finish the mission. Login missions additionally require the exact configured signed-in marker, a safe credential-form submission, a changed cookie/storage session, and disappearance of the credential form.
+currentObservation.interactive is a bounded DOM locator inventory from the rendered document, not an accessibility-tree dump. Presence means an element was rendered for locator use at capture time, but does not prove accessibility-tree exposure; omission cannot prove absence from the accessibility tree. If the mission requires accessibility-tree evidence that an exact reviewed assertion cannot establish, return blocked and leave that check for manual assistive-technology review.
+Before returning finish_fail because an expected action is missing, carefully inspect currentObservation.text, currentObservation.interactive, and the screenshot. Do not claim an element is absent when it appears in the observation, and do not infer accessibility-tree absence from omission alone.
 If a relevant action may be below the fold, scroll or use another visible navigation action before failing. Fail only when the live app clearly contradicts the mission goal or a required assertion remains false after a reasonable browser attempt.
 Do not use hardcoded scripts. Navigate like a human tester using the live page observation and attached screenshot.`
     },
@@ -604,11 +626,85 @@ function sanitizeStepResultMessage(message: string): string {
   return redactText(String(message)).slice(0, MAX_STEP_RESULT_MESSAGE_CHARS);
 }
 
+function completionAssertionsAfterFinalStateChange(mission: QAFlowMission): QAFlowMission["steps"] {
+  let finalStateChangeIndex = -1;
+  mission.steps.forEach((step, index) => {
+    if (isReviewedStateChange(step.action)) finalStateChangeIndex = index;
+  });
+  return mission.steps.filter((step, index) =>
+    index > finalStateChangeIndex
+    && Boolean(step.target?.trim())
+    && (step.action === "assert_visible" || (step.action === "assert_text" && Boolean(step.expected?.trim())))
+  );
+}
+
+async function revalidateCompletionAssertionsAtFinalization(input: {
+  mission: QAFlowMission;
+  page: Page;
+  options: BrowserRunOptions;
+  approvals: ApprovalState;
+  navigation: BrowserNavigationBoundary;
+}): Promise<string | undefined> {
+  const failures: string[] = [];
+  for (const step of completionAssertionsAfterFinalStateChange(input.mission)) {
+    const navigationProblem = input.navigation.checkPage(input.page, `final assertion ${step.id}`);
+    if (navigationProblem) return navigationProblem.message;
+
+    // Final verification is derived only from the reviewed mission. The live
+    // model cannot substitute a locator or weaken expected text at this
+    // boundary. Reuse the same executor as the interactive assertion path so
+    // attachment, uniqueness, visibility, and text semantics stay identical.
+    const decision = bindReviewedAssertionDecision({
+      thought: "Re-check the reviewed completion assertion on the final page.",
+      action: "assert",
+      missionStepId: step.id,
+      reason: `Final reviewed assertion ${step.id}`
+    }, input.mission);
+    const result = await executeDecision(input.page, decision, input.options, input.approvals, `final-assertion-${step.id}`, {
+      mission: input.mission,
+      missionRole: input.mission.role,
+      navigation: input.navigation
+    });
+
+    const postAssertionNavigationProblem = input.navigation.checkPage(input.page, `final assertion ${step.id}`);
+    if (postAssertionNavigationProblem) return postAssertionNavigationProblem.message;
+    if (result.status !== "passed") {
+      failures.push(`${step.id}: ${sanitizeStepResultMessage(result.message)}`);
+    }
+  }
+  if (!failures.length) return undefined;
+  return sanitizeStepResultMessage(
+    `Browser finalization blocked because reviewed completion assertions did not pass on the final page: ${failures.join("; ")}`
+  );
+}
+
+function isReviewedStateChange(action: QAFlowMission["steps"][number]["action"]): boolean {
+  return action === "goto" || action === "login" || action === "click" || action === "fill" || action === "press";
+}
+
+function invalidatesCompletionEvidence(action: BrowserDecision["action"]): boolean {
+  return action === "goto"
+    || action === "click"
+    || action === "fill"
+    || action === "press"
+    || action === "wait"
+    || action === "scroll"
+    || action === "set_viewport";
+}
+
 function validateBrowserMissionConfiguration(
   mission: QAFlowMission,
   contract: QAContract,
   saveStorageState: string | undefined
 ): string | undefined {
+  const invalidTextAssertion = mission.steps.find((step) => step.action === "assert_text" && !step.expected?.trim());
+  if (invalidTextAssertion) {
+    return `Reviewed assert_text step "${invalidTextAssertion.id}" must include nonblank expected text.`;
+  }
+  const completionAssertions = completionAssertionsAfterFinalStateChange(mission);
+  if (!completionAssertions.length) {
+    return "Browser missions must include at least one valid reviewed assert_visible/assert_text completion step after the final reviewed goto/login/click/fill/press step; observe and earlier assertions cannot support the final pass claim.";
+  }
   const loginSteps = mission.steps.filter((step) => step.action === "login");
   if (!loginSteps.length) return undefined;
   if (!mission.role) return "Login missions must declare the exact configured auth role.";
@@ -642,6 +738,7 @@ async function validateMissionCompletion(input: {
   context: BrowserContext;
   page: Page;
   coveredStepIds: ReadonlySet<string>;
+  freshCompletionAssertionStepIds: ReadonlySet<string>;
   loginSubmissionObserved: boolean;
   initialSessionFingerprint?: string;
 }): Promise<string | undefined> {
@@ -656,16 +753,18 @@ async function validateMissionCompletion(input: {
   }
 
   if (loginSteps.length === 0) {
-    const reviewedAssertions = executableSteps.filter((step) => step.action === "assert_visible" || step.action === "assert_text");
-    if (!reviewedAssertions.length) {
-      return "finish_pass blocked: the reviewed mission has no assert_visible/assert_text completion step.";
+    const completionAssertions = completionAssertionsAfterFinalStateChange(input.mission);
+    const staleCompletionAssertions = completionAssertions.filter((step) => !input.freshCompletionAssertionStepIds.has(step.id));
+    if (staleCompletionAssertions.length) {
+      return `finish_pass blocked: every reviewed completion assertion must pass after the latest browser state change; rerun: ${staleCompletionAssertions.map((step) => step.id).join(", ")}.`;
     }
     return undefined;
   }
 
-  const reviewedLoginAssertions = executableSteps.filter((step) => step.action === "assert_visible" || step.action === "assert_text");
-  if (!reviewedLoginAssertions.length) {
-    return "finish_pass blocked: login missions require an exact reviewed signed-in assertion.";
+  const reviewedLoginAssertions = completionAssertionsAfterFinalStateChange(input.mission);
+  const staleLoginAssertions = reviewedLoginAssertions.filter((step) => !input.freshCompletionAssertionStepIds.has(step.id));
+  if (staleLoginAssertions.length) {
+    return `finish_pass blocked: every reviewed signed-in completion assertion must pass after the latest browser state change; rerun: ${staleLoginAssertions.map((step) => step.id).join(", ")}.`;
   }
 
   if (!input.loginSubmissionObserved) {

@@ -21,6 +21,15 @@ describe("selectAutomationCandidates", () => {
     expect(selectAutomationCandidates(mission(), { allCandidates: true }).map((candidate) => candidate.id)).toEqual(["first", "second", "third"]);
   });
 
+  it("preserves an all-manual mission while explicit missing ids still fail", () => {
+    const allManual = { ...mission(), automationCandidates: [] };
+
+    expect(selectAutomationCandidates(allManual)).toEqual([]);
+    expect(selectAutomationCandidates(allManual, { allCandidates: true })).toEqual([]);
+    expect(() => selectAutomationCandidates(allManual, { missionId: "missing" }))
+      .toThrow('Automation candidate "missing" was not found. Available candidates: (none)');
+  });
+
   it.each(["../outside", "nested/path", "nested\\path", ".", "", "mission id"])("rejects unsafe mission artifact id %j", (id) => {
     expect(() => safeArtifactSegment(id, "mission id")).toThrow("safe single path segment");
   });

@@ -109,11 +109,15 @@ export function renderHumanReport(input: {
   lines.push("## Browser results");
   lines.push("");
   if (!runResults.length) {
-    lines.push("No browser checks have run yet.");
-    lines.push("");
-    lines.push("### Suggested browser checks");
-    for (const flow of input.mission.automationCandidates) {
-      lines.push(`- **${escapeUntrustedMarkdown(flow.title)}** as ${markdownInlineCode(flow.role ?? "guest")} starting at ${markdownInlineCode(flow.startPath ?? "/")}`);
+    if (input.mission.automationCandidates.length) {
+      lines.push("No browser checks have run yet.");
+      lines.push("");
+      lines.push("### Suggested browser checks");
+      for (const flow of input.mission.automationCandidates) {
+        lines.push(`- **${escapeUntrustedMarkdown(flow.title)}** as ${markdownInlineCode(flow.role ?? "guest")} starting at ${markdownInlineCode(flow.startPath ?? "/")}`);
+      }
+    } else {
+      lines.push("No runnable browser mission was generated. Complete the manual checklist and resolve the missing context below; no browser evidence was produced.");
     }
   } else {
     lines.push("### Results");
@@ -167,8 +171,11 @@ export function renderHumanReportHtml(input: {
     : "No browser results yet";
   const missionResults = runResults.length
     ? runResults.map((result) => renderMissionResultHtml(result, input.mission.automationCandidates.find((item) => item.id === result.missionId), input.runDir)).join("\n")
-    : `<section class="empty-state"><p class="empty-state__title">No browser checks have run yet.</p>
-${renderList(input.mission.automationCandidates.map((flow) => `${flow.title} as ${flow.role ?? "guest"} starting at ${flow.startPath ?? "/"}`), false, "suggested-missions")}</section>`;
+    : input.mission.automationCandidates.length
+      ? `<section class="empty-state"><p class="empty-state__title">No browser checks have run yet.</p>
+${renderList(input.mission.automationCandidates.map((flow) => `${flow.title} as ${flow.role ?? "guest"} starting at ${flow.startPath ?? "/"}`), false, "suggested-missions")}</section>`
+      : `<section class="empty-state"><p class="empty-state__title">No runnable browser mission was generated.</p>
+<p>Complete the manual checklist and resolve the missing context below. No browser evidence was produced.</p></section>`;
 
   return `<!doctype html>
 <html lang="en">
@@ -631,6 +638,17 @@ function releaseDecision(
     };
   }
   if (!runResults.length) {
+    if (!mission.automationCandidates.length) {
+      return {
+        status: "needs_browser_evidence",
+        reason: "The analysis produced manual checks only because no safe final-state browser assertion was available.",
+        nextSteps: [
+          "Complete the manual checklist and record the result before production.",
+          "Add deterministic final-state selectors or expected text before regenerating browser missions.",
+          ...mission.unknowns.map((unknown) => `Resolve missing context: ${unknown}`)
+        ]
+      };
+    }
     return {
       status: "needs_browser_evidence",
       reason: "The checklist is ready, but no browser checks have run.",

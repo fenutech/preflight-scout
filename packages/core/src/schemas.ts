@@ -134,8 +134,8 @@ export const MissionStepSchema = z.object({
     }
   }
 
-  if (step.action === "assert_text" && step.expected === undefined) {
-    context.addIssue({ code: "custom", path: ["expected"], message: "assert_text steps require expected text" });
+  if (step.action === "assert_text" && !step.expected?.trim()) {
+    context.addIssue({ code: "custom", path: ["expected"], message: "assert_text steps require nonblank expected text" });
   }
 });
 

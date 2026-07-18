@@ -19,6 +19,7 @@ import {
   type MissionRunResult,
   type ProgressCallback,
   type QAContract,
+  type QAMission,
   writeAnalysisArtifacts,
   writeInitialContract,
   writeTextEnsuringDir
@@ -517,36 +518,42 @@ program
       })
     });
     if (analysisDir) progress("Reusing reviewed analysis artifacts");
-    const appUrl = resolveTargetUrl(contract, { url: options.url, target: options.target, env: options.env ?? contract.defaults?.targetEnv ?? "auto" });
-    const llm = createDefaultLLMFromEnv();
-    if (!llm) throw new Error("Browser execution requires an LLM provider.");
     const selectedMissions = selectAutomationCandidates(analysis.mission, {
       missionId: options.missionId,
       allCandidates: options.allCandidates || contract.defaults?.allCandidates,
       missionLimit: parseOptionalPositiveInteger(options.missionLimit, "--mission-limit") ?? contract.defaults?.missionLimit
     });
     progress(`Selected ${selectedMissions.length} browser mission(s)`);
-    const storage = await resolveStorageOptions(root, contract, selectedMissions, {
-      storageState: options.storageState,
-      saveStorageState: options.saveStorageState
-    });
-    if (storage.storageState) progress(`Using storage state ${storage.storageState}`);
-    const storageProblem = storage.storageState ? await validateStorageStateInput(storage.storageState) : undefined;
-    const runResults = storageProblem
-      ? blockMissionsForInvalidStorage(selectedMissions, storageProblem, progress)
-      : await runAutomationCandidates(selectedMissions, {
-          appUrl,
-          contract,
-          llm,
-          root,
-          outputDir: await createAnalysisEvidenceDirectory(outputDir, output.boundary),
-          headless: options.headed ? false : contract.defaults?.headless ?? true,
-          maxTurns: parseOptionalPositiveInteger(options.maxTurns, "--max-turns") ?? contract.defaults?.maxTurns,
-          storageState: storage.storageState,
-          saveStorageState: storage.saveStorageState,
-          trace: options.trace && contract.defaults?.trace !== false,
-          progress
-        });
+    let appUrl: string | undefined;
+    let runResults: MissionRunResult[] | undefined;
+    if (!selectedMissions.length) {
+      progress("No runnable browser missions were generated; writing the manual analysis without browser evidence");
+    } else {
+      appUrl = resolveTargetUrl(contract, { url: options.url, target: options.target, env: options.env ?? contract.defaults?.targetEnv ?? "auto" });
+      const llm = createDefaultLLMFromEnv();
+      if (!llm) throw new Error("Browser execution requires an LLM provider.");
+      const storage = await resolveStorageOptions(root, contract, selectedMissions, {
+        storageState: options.storageState,
+        saveStorageState: options.saveStorageState
+      });
+      if (storage.storageState) progress(`Using storage state ${storage.storageState}`);
+      const storageProblem = storage.storageState ? await validateStorageStateInput(storage.storageState) : undefined;
+      runResults = storageProblem
+        ? blockMissionsForInvalidStorage(selectedMissions, storageProblem, progress)
+        : await runAutomationCandidates(selectedMissions, {
+            appUrl,
+            contract,
+            llm,
+            root,
+            outputDir: await createAnalysisEvidenceDirectory(outputDir, output.boundary),
+            headless: options.headed ? false : contract.defaults?.headless ?? true,
+            maxTurns: parseOptionalPositiveInteger(options.maxTurns, "--max-turns") ?? contract.defaults?.maxTurns,
+            storageState: storage.storageState,
+            saveStorageState: storage.saveStorageState,
+            trace: options.trace && contract.defaults?.trace !== false,
+            progress
+          });
+    }
     const sourceBundleSha256 = analysisDir
       && await pathsReferToSameDirectory(analysisDir, outputDir)
       ? analysis.sourceBundleSha256
@@ -556,8 +563,7 @@ program
       impactMap: analysis.impactMap,
       mission: analysis.mission,
       provenance: analysis.provenance,
-      executionRuntime: CLI_EXECUTION_RUNTIME,
-      runResults,
+      ...(runResults ? { executionRuntime: CLI_EXECUTION_RUNTIME, runResults } : {}),
       expectedPreviousBundleSha256: sourceBundleSha256
     });
     if (options.pdf) {
@@ -623,9 +629,6 @@ program
     });
     const analysis = await readAnalysisArtifactBundle(analysisDir, missionLocation.boundary, expectedProvenance);
     const mission = analysis.mission;
-    const appUrl = resolveTargetUrl(contract, { url: options.url, target: options.target, env: options.env ?? contract.defaults?.targetEnv ?? "auto" });
-    const llm = createDefaultLLMFromEnv();
-    if (!llm) throw new Error("Browser execution requires an LLM provider.");
     const output = await resolveAnalysisOutputDir(root, options.outputDir, contract.defaults?.outputDir);
     const outputDir = output.directory;
     const selectedMissions = selectAutomationCandidates(mission, {
@@ -634,24 +637,33 @@ program
       missionLimit: parseOptionalPositiveInteger(options.missionLimit, "--mission-limit") ?? contract.defaults?.missionLimit
     });
     progress(`Selected ${selectedMissions.length} browser mission(s)`);
-    const storage = await resolveStorageOptions(root, contract, selectedMissions, {
-      storageState: options.storageState,
-      saveStorageState: options.saveStorageState
-    });
-    if (storage.storageState) progress(`Using storage state ${storage.storageState}`);
-    const runResults = await runAutomationCandidates(selectedMissions, {
-      appUrl,
-      contract,
-      llm,
-      root,
-      outputDir: await createAnalysisEvidenceDirectory(outputDir, output.boundary),
-      headless: options.headed ? false : contract.defaults?.headless ?? true,
-      maxTurns: parseOptionalPositiveInteger(options.maxTurns, "--max-turns") ?? contract.defaults?.maxTurns,
-      storageState: storage.storageState,
-      saveStorageState: storage.saveStorageState,
-      trace: options.trace && contract.defaults?.trace !== false,
-      progress
-    });
+    let appUrl: string | undefined;
+    let runResults: MissionRunResult[] | undefined;
+    if (!selectedMissions.length) {
+      progress("No runnable browser missions were generated; writing the manual analysis without browser evidence");
+    } else {
+      appUrl = resolveTargetUrl(contract, { url: options.url, target: options.target, env: options.env ?? contract.defaults?.targetEnv ?? "auto" });
+      const llm = createDefaultLLMFromEnv();
+      if (!llm) throw new Error("Browser execution requires an LLM provider.");
+      const storage = await resolveStorageOptions(root, contract, selectedMissions, {
+        storageState: options.storageState,
+        saveStorageState: options.saveStorageState
+      });
+      if (storage.storageState) progress(`Using storage state ${storage.storageState}`);
+      runResults = await runAutomationCandidates(selectedMissions, {
+        appUrl,
+        contract,
+        llm,
+        root,
+        outputDir: await createAnalysisEvidenceDirectory(outputDir, output.boundary),
+        headless: options.headed ? false : contract.defaults?.headless ?? true,
+        maxTurns: parseOptionalPositiveInteger(options.maxTurns, "--max-turns") ?? contract.defaults?.maxTurns,
+        storageState: storage.storageState,
+        saveStorageState: storage.saveStorageState,
+        trace: options.trace && contract.defaults?.trace !== false,
+        progress
+      });
+    }
     const impactMap = analysis.impactMap;
     const sourceBundleSha256 = await pathsReferToSameDirectory(analysisDir, outputDir)
       ? analysis.bundleSha256
@@ -661,8 +673,7 @@ program
       impactMap,
       mission,
       provenance: analysis.provenance,
-      executionRuntime: CLI_EXECUTION_RUNTIME,
-      runResults,
+      ...(runResults ? { executionRuntime: CLI_EXECUTION_RUNTIME, runResults } : {}),
       expectedPreviousBundleSha256: sourceBundleSha256
     });
     if (options.pdf) {
@@ -804,14 +815,19 @@ program
     await loadEnvFile(root, options.envFile);
     const mission = await readMissionArtifact(path.resolve(options.mission));
     const contract = await loadContract(root);
+    const selectedMissions = selectAutomationCandidates(mission, {
+      missionId: options.missionId,
+      allCandidates: options.allCandidates || contract.defaults?.allCandidates,
+      missionLimit: parseOptionalPositiveInteger(options.missionLimit, "--mission-limit") ?? contract.defaults?.missionLimit
+    });
+    if (!selectedMissions.length) {
+      printNoRunnableMissionSummary(mission);
+      return;
+    }
     const appUrl = resolveTargetUrl(contract, { url: options.url, target: options.target, env: options.env ?? contract.defaults?.targetEnv ?? "auto" });
     const selectedMission = {
       ...mission,
-      automationCandidates: selectAutomationCandidates(mission, {
-        missionId: options.missionId,
-        allCandidates: options.allCandidates || contract.defaults?.allCandidates,
-        missionLimit: parseOptionalPositiveInteger(options.missionLimit, "--mission-limit") ?? contract.defaults?.missionLimit
-      })
+      automationCandidates: selectedMissions
     };
     console.log(renderAgentPrompt({
       kind: "custom",
@@ -870,14 +886,35 @@ program
         return { impactMap: result.impactMap, mission: result.mission, provenance };
       }
     });
+    const selectedMissions = selectAutomationCandidates(analysis.mission, {
+      missionId: options.missionId,
+      allCandidates: options.allCandidates || contract.defaults?.allCandidates,
+      missionLimit: parseOptionalPositiveInteger(options.missionLimit, "--mission-limit") ?? contract.defaults?.missionLimit
+    });
+    if (!selectedMissions.length) {
+      let reportDir = analysisDir;
+      if (!reportDir) {
+        const output = await resolveAnalysisOutputDir(root, undefined, contract.defaults?.outputDir);
+        await writeAnalysisArtifacts(output.directory, {
+          boundary: output.boundary,
+          impactMap: analysis.impactMap,
+          mission: analysis.mission,
+          provenance: analysis.provenance
+        });
+        reportDir = output.directory;
+      }
+      console.log(renderArtifactSummary({
+        runDir: reportDir,
+        impactMap: analysis.impactMap,
+        mission: analysis.mission
+      }));
+      printNoRunnableMissionSummary(analysis.mission, "No browser agent was started and no browser evidence was produced.");
+      return;
+    }
     const appUrl = resolveTargetUrl(contract, { url: options.url, target: options.target, env: options.env ?? contract.defaults?.targetEnv ?? "auto" });
     const mission = {
       ...analysis.mission,
-      automationCandidates: selectAutomationCandidates(analysis.mission, {
-        missionId: options.missionId,
-        allCandidates: options.allCandidates || contract.defaults?.allCandidates,
-        missionLimit: parseOptionalPositiveInteger(options.missionLimit, "--mission-limit") ?? contract.defaults?.missionLimit
-      })
+      automationCandidates: selectedMissions
     };
     const agentKind = options.agent as AgentExecKind;
     const selectedRoles = [...new Set(mission.automationCandidates.flatMap((candidate) => candidate.role ? [candidate.role] : []))];
@@ -944,14 +981,35 @@ program
     const contract = await loadContract(root);
     const base = await resolveBaseRef(root, options.base, contract);
     const analysis = await analyzePullRequest({ root, base, head: options.head, title: options.title, body: options.body });
+    const selectedMissions = selectAutomationCandidates(analysis.mission, {
+      missionId: options.missionId,
+      allCandidates: options.allCandidates || contract.defaults?.allCandidates,
+      missionLimit: parseOptionalPositiveInteger(options.missionLimit, "--mission-limit") ?? contract.defaults?.missionLimit
+    });
+    if (!selectedMissions.length) {
+      const output = await resolveAnalysisOutputDir(root, undefined, analysis.contract.defaults?.outputDir);
+      const provenance = await createAnalysisProvenance({
+        root,
+        baseCommit: analysis.pullRequest.base!,
+        headCommit: analysis.pullRequest.head!,
+        contract: analysis.contract,
+        repoIndex: analysis.repoIndex,
+        analysisRuntime: CLI_ANALYSIS_RUNTIME
+      });
+      await writeAnalysisArtifacts(output.directory, {
+        boundary: output.boundary,
+        impactMap: analysis.impactMap,
+        mission: analysis.mission,
+        provenance
+      });
+      console.log(renderArtifactSummary({ runDir: output.directory, impactMap: analysis.impactMap, mission: analysis.mission }));
+      printNoRunnableMissionSummary(analysis.mission, "No MCP tool was called and no browser evidence was produced.");
+      return;
+    }
     const appUrl = resolveTargetUrl(analysis.contract, { url: options.url, target: options.target, env: options.env ?? contract.defaults?.targetEnv ?? "auto" });
     const mission = {
       ...analysis.mission,
-      automationCandidates: selectAutomationCandidates(analysis.mission, {
-        missionId: options.missionId,
-        allCandidates: options.allCandidates || contract.defaults?.allCandidates,
-        missionLimit: parseOptionalPositiveInteger(options.missionLimit, "--mission-limit") ?? contract.defaults?.missionLimit
-      })
+      automationCandidates: selectedMissions
     };
     const result = await executeMissionViaPromptTool({
       server: { command: options.serverCommand, args: options.serverArg },
@@ -1259,6 +1317,16 @@ function selectContractRoles(contract: QAContract, roles: readonly string[]): QA
       roles: selectedRoles
     }
   };
+}
+
+function printNoRunnableMissionSummary(
+  mission: QAMission,
+  detail = "No browser execution was started and no browser evidence was produced."
+): void {
+  console.log("No runnable browser missions were generated.");
+  console.log(detail);
+  for (const check of mission.manualChecklist) console.log(`Manual check: ${check}`);
+  for (const unknown of mission.unknowns) console.log(`Unknown: ${unknown}`);
 }
 
 function parseOptionalPositiveInteger(value: string | undefined, label: string): number | undefined {

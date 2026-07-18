@@ -6,6 +6,19 @@ All notable changes to Preflight Scout are documented here. This project follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Kept generated browser missions aligned with the fail-closed runner by
+  requiring nonblank reviewed `assert_visible` or `assert_text` completion
+  evidence after the final state-changing step, omitting unassertable
+  candidates with an explicit manual-review reason, rejecting invalid direct
+  missions before browser launch, and invalidating stale completion evidence
+  after later browser-state changes while retaining intermediate assertions.
+  Every final completion assertion is also re-evaluated against the final
+  same-origin DOM before pass evidence or authenticated state is persisted.
+- Preserved all-manual analyses without starting an agent, browser, or MCP
+  runtime and without claiming that browser evidence was collected.
+
 ## [0.1.5] - 2026-07-18
 
 ### Security

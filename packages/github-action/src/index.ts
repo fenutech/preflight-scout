@@ -43,24 +43,26 @@ async function main(): Promise<void> {
   let resolvedAppUrl: string | undefined;
   let runResults: MissionRunResult[] | undefined;
   if (inputs.mode === "analyze-and-run") {
-    resolvedAppUrl = await resolveActionAppUrl({
-      explicitUrl: inputs.appUrl,
-      target: inputs.target,
-      targetEnv: inputs.targetEnv,
-      contract: analysis.contract,
-      octokit,
-      pull,
-      detectDeploymentUrl: inputs.detectDeploymentUrl
+    const selectedMissions = selectAutomationCandidates(analysis.mission, {
+      missionId: inputs.missionId,
+      allCandidates: inputs.allCandidates,
+      missionLimit: inputs.missionLimit ?? analysis.contract.defaults?.missionLimit ?? 1
     });
-    const llm = createDefaultLLMFromEnv();
-    if (!llm) throw new Error("mode=analyze-and-run requires an LLM provider.");
-    runResults = await runAutomationCandidates(
-      selectAutomationCandidates(analysis.mission, {
-        missionId: inputs.missionId,
-        allCandidates: inputs.allCandidates,
-        missionLimit: inputs.missionLimit ?? analysis.contract.defaults?.missionLimit ?? 1
-      }),
-      {
+    if (!selectedMissions.length) {
+      core.info("No runnable browser missions were generated; publishing the manual analysis without browser evidence.");
+    } else {
+      resolvedAppUrl = await resolveActionAppUrl({
+        explicitUrl: inputs.appUrl,
+        target: inputs.target,
+        targetEnv: inputs.targetEnv,
+        contract: analysis.contract,
+        octokit,
+        pull,
+        detectDeploymentUrl: inputs.detectDeploymentUrl
+      });
+      const llm = createDefaultLLMFromEnv();
+      if (!llm) throw new Error("mode=analyze-and-run requires an LLM provider.");
+      runResults = await runAutomationCandidates(selectedMissions, {
         appUrl: resolvedAppUrl,
         contract: analysis.contract,
         llm,
@@ -71,8 +73,8 @@ async function main(): Promise<void> {
         storageState: inputs.storageState,
         saveStorageState: inputs.saveStorageState,
         trace: inputs.trace
-      }
-    );
+      });
+    }
   }
 
   const generatedAt = new Date().toISOString();

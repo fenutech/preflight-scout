@@ -112,6 +112,21 @@ describe("reviewed browser action boundary", () => {
     expect(checkActionSafety(bound, contract(), noApprovals, reviewed)).toBeUndefined();
   });
 
+  it("rejects a reviewed text assertion without nonblank expected evidence", () => {
+    for (const expected of ["", "   "]) {
+      const reviewed = mission({
+        id: "reviewed-action",
+        instruction: "Verify the reviewed total.",
+        action: "assert_text",
+        target: "testid=order-total",
+        expected
+      });
+      const bound = bindReviewedAssertionDecision(decision({ action: "assert" }), reviewed);
+
+      expect(checkActionSafety(bound, contract(), noApprovals, reviewed)).toContain("nonblank expected text");
+    }
+  });
+
   it("rejects oversized decisions and unsafe viewport allocations", () => {
     expect(BrowserDecisionSchema.safeParse(decision({ value: "x".repeat(4_097) })).success).toBe(false);
     expect(() => parseViewportSize("99999x99999")).toThrow("must not exceed");
