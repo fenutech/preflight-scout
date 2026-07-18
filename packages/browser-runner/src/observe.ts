@@ -37,7 +37,20 @@ export async function observe(page: Page, consoleErrors: string[], networkErrors
       const trimmed = value?.trim();
       return trimmed ? trimmed.slice(0, limit) : undefined;
     };
-    const nodes = [...document.querySelectorAll("a,button,input,textarea,select,[role],[data-testid]")].slice(0, count);
+    const isRendered = (element: Element): boolean => {
+      const style = window.getComputedStyle(element);
+      if ((element instanceof HTMLElement && element.hidden)
+        || style.display === "none"
+        || style.visibility === "hidden"
+        || style.visibility === "collapse") {
+        return false;
+      }
+      const bounds = element.getBoundingClientRect();
+      return bounds.width > 0 && bounds.height > 0;
+    };
+    const nodes = [...document.querySelectorAll("a,button,input,textarea,select,[role],[data-testid]")]
+      .filter(isRendered)
+      .slice(0, count);
     return nodes.map((node) => {
       const element = node as HTMLElement;
       const input = node as HTMLInputElement;

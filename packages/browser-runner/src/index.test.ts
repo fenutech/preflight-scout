@@ -126,6 +126,29 @@ class CapturingBlockedLLM implements LLMClient {
   }
 }
 
+class ObservationVisibilityLLM implements LLMClient {
+  prompts: string[] = [];
+
+  async completeJson<T>(messages: LLMMessage[], options: StructuredJsonOptions<T>): Promise<T> {
+    if (options.schemaName !== "browser_decision") throw new Error(`Unexpected schema in observation visibility LLM: ${options.schemaName}`);
+    this.prompts.push(messages.map((message) => message.content).join("\n"));
+    if (this.prompts.length === 1) {
+      return {
+        thought: "Reveal the reviewed alert.",
+        action: "click",
+        missionStepId: "reveal-alert",
+        target: "testid=reveal-alert",
+        reason: "Exercise the reviewed visibility transition."
+      } as T;
+    }
+    return {
+      thought: "Stop after capturing the visible alert.",
+      action: "blocked",
+      reason: "Observation visibility captured."
+    } as T;
+  }
+}
+
 class ApprovalAwareLLM implements LLMClient {
   private turn = 0;
   lastPayload?: { approvedActions?: string[] };
@@ -262,6 +285,27 @@ describe("runBrowserMission", () => {
             for (let index = 0; index < 500; index += 1) console.error("hostile-console-" + index + "-" + "e".repeat(2000));
           </script>
         </body></html>`);
+        return;
+      }
+      if (req.url === "/observation-visibility") {
+        const hiddenCrowd = Array.from({ length: 85 }, (_, index) =>
+          `<p hidden role="status" data-testid="hidden-crowd-${index}">HIDDEN_CROWD_SENTINEL_${index}</p>`
+        ).join("");
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end(`<!doctype html><body>
+          ${hiddenCrowd}
+          <div hidden><button data-testid="hidden-by-ancestor">HIDDEN_ANCESTOR_SENTINEL</button></div>
+          <button style="display:none" data-testid="hidden-by-display">HIDDEN_DISPLAY_SENTINEL</button>
+          <button style="visibility:hidden" data-testid="hidden-by-visibility">HIDDEN_VISIBILITY_SENTINEL</button>
+          <input type="hidden" data-testid="hidden-input-sentinel" />
+          <p data-testid="promo-error" role="alert" hidden>HIDDEN_ALERT_SENTINEL</p>
+          <button data-testid="reveal-alert">VISIBLE_CONTROL_SENTINEL</button>
+          <script>
+            document.querySelector('[data-testid="reveal-alert"]').addEventListener("click", () => {
+              document.querySelector('[data-testid="promo-error"]').hidden = false;
+            });
+          </script>
+        </body>`);
         return;
       }
       if (req.url === "/duplicate-control") {
@@ -501,6 +545,62 @@ describe("runBrowserMission", () => {
     const consoleErrors = JSON.parse(await readFile(result.evidence!.consolePath!, "utf8")) as string[];
     expect(consoleErrors.length).toBeLessThanOrEqual(100);
     expect(consoleErrors.at(-1)?.length).toBeLessThanOrEqual(1_000);
+  });
+
+  it("excludes hidden DOM from observations before bounding visible controls", async () => {
+    const llm = new ObservationVisibilityLLM();
+    const result = await runBrowserMission({
+      id: "observation-visibility",
+      title: "Observe a reviewed visibility transition",
+      risk: "low",
+      startPath: "/observation-visibility",
+      reason: ["Exercise rendered observation filtering."],
+      steps: [{
+        id: "reveal-alert",
+        instruction: "Reveal the reviewed alert.",
+        action: "click",
+        policyLabel: "click",
+        target: "testid=reveal-alert"
+      }]
+    }, {
+      baseUrl,
+      contract: {
+        app: { name: "Observation fixture" },
+        criticalFlows: [],
+        sensitiveAreas: [],
+        dangerousActions: { allowed: ["click"], requireApproval: [], forbidden: [] },
+        testData: {},
+        unknowns: []
+      },
+      llm,
+      outputDir: path.join(outputDir, "observation-visibility"),
+      headless: true,
+      maxTurns: 2
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(llm.prompts).toHaveLength(2);
+    expect(llm.prompts[0]).toContain("VISIBLE_CONTROL_SENTINEL");
+    expect(llm.prompts[0]).not.toContain("HIDDEN_CROWD_SENTINEL");
+    expect(llm.prompts[0]).not.toContain("HIDDEN_ANCESTOR_SENTINEL");
+    expect(llm.prompts[0]).not.toContain("HIDDEN_DISPLAY_SENTINEL");
+    expect(llm.prompts[0]).not.toContain("HIDDEN_VISIBILITY_SENTINEL");
+    expect(llm.prompts[0]).not.toContain("hidden-input-sentinel");
+    expect(llm.prompts[0]).not.toContain("HIDDEN_ALERT_SENTINEL");
+    expect(llm.prompts[1]).toContain("HIDDEN_ALERT_SENTINEL");
+
+    const finalObservation = JSON.parse(await readFile(result.evidence!.finalObservationPath!, "utf8")) as {
+      interactive: Array<{ testid?: string; text?: string }>;
+    };
+    expect(finalObservation.interactive).toContainEqual(expect.objectContaining({
+      testid: "promo-error",
+      text: "HIDDEN_ALERT_SENTINEL"
+    }));
+    expect(finalObservation.interactive).toContainEqual(expect.objectContaining({
+      testid: "reveal-alert",
+      text: "VISIBLE_CONTROL_SENTINEL"
+    }));
+    expect(JSON.stringify(finalObservation)).not.toContain("HIDDEN_CROWD_SENTINEL");
   });
 
   it("refuses immediate finish_pass before the reviewed assertion is covered", async () => {
