@@ -323,15 +323,16 @@ export async function runBrowserMission(mission: QAFlowMission, options: Browser
     }
     if (finalResult?.status === "passed" && !navigation.violation && !page.isClosed()) {
       try {
-        finalizationProblem = await revalidateCompletionAssertionsAtFinalization({
+        const assertionProblem = await revalidateCompletionAssertionsAtFinalization({
           mission,
           page,
           options,
           approvals,
           navigation
         });
+        finalizationProblem ??= assertionProblem;
       } catch {
-        finalizationProblem = "Browser finalization failed closed because reviewed completion assertions could not be re-evaluated safely.";
+        finalizationProblem ??= "Browser finalization failed closed because reviewed completion assertions could not be re-evaluated safely.";
       }
     }
     if (!page.isClosed()) {

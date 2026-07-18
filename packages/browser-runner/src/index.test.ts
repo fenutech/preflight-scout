@@ -345,6 +345,23 @@ describe("runBrowserMission", () => {
 </body></html>`);
         return;
       }
+      if (req.url === "/late-observation-failure") {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end(`<!doctype html>
+<html lang="en"><head><title>Late observation failure fixture</title></head><body>
+  <p>Stable reviewed state</p>
+  <script>
+    const querySelectorAll = document.querySelectorAll.bind(document);
+    let observationQueries = 0;
+    document.querySelectorAll = (...args) => {
+      observationQueries += 1;
+      if (observationQueries === 3) throw new Error('Final DOM inventory failed');
+      return querySelectorAll(...args);
+    };
+  </script>
+</body></html>`);
+        return;
+      }
       if (req.url === "/late-assertion-state") {
         res.writeHead(200, { "content-type": "text/plain", "cache-control": "no-store" });
         res.end(lateAssertionShouldChange ? "changed" : "stable");
@@ -703,6 +720,41 @@ describe("runBrowserMission", () => {
     expect(result.evidence?.finalObservationPath).toBeUndefined();
     await expect(readFile(storagePath, "utf8")).rejects.toThrow();
     await expect(readFile(`${storagePath}.preflight-scout.json`, "utf8")).resolves.toContain('"status": "invalid"');
+  });
+
+  it("preserves a failed final observation when completion assertions still pass", async () => {
+    const result = await runBrowserMission({
+      id: "late-observation-failure",
+      title: "Fail closed when final observation cannot be captured",
+      risk: "high",
+      startPath: "/late-observation-failure",
+      reason: ["The final DOM inventory must remain observable."],
+      steps: [{
+        id: "verify-stable-state",
+        instruction: "Verify the reviewed stable state.",
+        action: "assert_visible",
+        target: "text=Stable reviewed state"
+      }]
+    }, {
+      baseUrl,
+      contract: basicContract(),
+      llm: new DecisionSequenceLLM([
+        { thought: "Verify the reviewed state.", action: "assert", missionStepId: "verify-stable-state", reason: "The stable state is visible." },
+        { thought: "Finish after the reviewed assertion.", action: "finish_pass", reason: "The reviewed assertion passed." }
+      ]),
+      outputDir: path.join(outputDir, "late-observation-failure"),
+      headless: true,
+      maxTurns: 2
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(result.results.at(-1)).toMatchObject({
+      stepId: "browser-finalization",
+      status: "blocked",
+      message: "Browser finalization failed closed because the final same-origin state could not be observed safely."
+    });
+    expect(result.evidence?.tracePath).toBeUndefined();
+    expect(result.evidence?.finalObservationPath).toBeUndefined();
   });
 
   it.each([
