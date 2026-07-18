@@ -1,10 +1,5 @@
 import { createHash } from "node:crypto";
 import {
-  closeSync,
-  constants as fsConstants,
-  fstatSync,
-  lstatSync,
-  openSync,
   readFileSync,
   readdirSync
 } from "node:fs";
@@ -12,6 +7,11 @@ import { realpath } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createTrustedGit } from "./trusted-git.js";
+import {
+  BuildIdentityReadError,
+  readBuildIdentityFileSync,
+  resolvePackageRuntimePaths
+} from "./build-identity-file.js";
 import { indexRepository } from "./repo-indexer.js";
 import { redactRepoIndex } from "./redaction.js";
 import type {
@@ -272,14 +272,12 @@ function requireToolVersion(value: unknown): string {
 }
 
 export function resolvePackageRuntimeIdentity(moduleUrl: string, expectedPackageName: string): string {
-  const modulePath = fileURLToPath(moduleUrl);
-  const packageRoot = fileURLToPath(new URL("..", moduleUrl));
-  const packageManifestPath = path.join(packageRoot, "package.json");
+  const { modulePath, packageRoot, packageManifestPath } = resolvePackageRuntimePaths(moduleUrl);
   let installedManifest: { name?: unknown; version?: unknown };
   try {
-    installedManifest = JSON.parse(readBoundedFileSync(packageManifestPath, 1024 * 1024).toString("utf8"));
-  } catch {
-    throw packageIdentityError(expectedPackageName, "package metadata is missing or malformed");
+    installedManifest = JSON.parse(readBuildIdentityFileSync(packageManifestPath, 1024 * 1024).toString("utf8"));
+  } catch (error) {
+    throw packageIdentityError(expectedPackageName, packageMetadataFailure(error));
   }
   if (installedManifest.name !== expectedPackageName || installedManifest.version !== PREFLIGHT_SCOUT_VERSION) {
     throw packageIdentityError(expectedPackageName, "package metadata does not match this release");
@@ -336,7 +334,7 @@ export function verifyPackageDistBuildIdentity(
     outputs?: unknown;
   };
   try {
-    stamp = JSON.parse(readBoundedFileSync(stampPath, MAX_BUILD_STAMP_BYTES).toString("utf8"));
+    stamp = JSON.parse(readBuildIdentityFileSync(stampPath, MAX_BUILD_STAMP_BYTES).toString("utf8"));
   } catch {
     throw packageIdentityError(expectedPackageName, "the build stamp is missing or malformed");
   }
@@ -362,9 +360,9 @@ export function verifyPackageDistBuildIdentity(
   const packageManifestPath = path.join(packageDirectory, "package.json");
   let installedManifest: unknown;
   try {
-    installedManifest = JSON.parse(readBoundedFileSync(packageManifestPath, 1024 * 1024).toString("utf8"));
-  } catch {
-    throw packageIdentityError(expectedPackageName, "package metadata is missing or malformed");
+    installedManifest = JSON.parse(readBuildIdentityFileSync(packageManifestPath, 1024 * 1024).toString("utf8"));
+  } catch (error) {
+    throw packageIdentityError(expectedPackageName, packageMetadataFailure(error));
   }
   if (hashRuntimeManifest(installedManifest) !== stamp.packageRuntimeHash) {
     throw packageIdentityError(expectedPackageName, "package metadata changed after build");
@@ -389,7 +387,7 @@ export function verifyPackageDistBuildIdentity(
     }
     let actualDigest: string;
     try {
-      const contents = readBoundedFileSync(outputPath, MAX_PACKAGE_OUTPUT_BYTES - totalOutputBytes);
+      const contents = readBuildIdentityFileSync(outputPath, MAX_PACKAGE_OUTPUT_BYTES - totalOutputBytes);
       totalOutputBytes += contents.length;
       actualDigest = sha256Buffer(contents);
     } catch {
@@ -459,34 +457,6 @@ function sha256Buffer(contents: Buffer): string {
   return `sha256:${createHash("sha256").update(contents).digest("hex")}`;
 }
 
-function readBoundedFileSync(filePath: string, maxBytes: number): Buffer {
-  if (maxBytes < 0) throw new Error("bounded file budget exhausted");
-  const leafStats = lstatSync(filePath);
-  if (!leafStats.isFile() || leafStats.isSymbolicLink() || leafStats.size > maxBytes) {
-    throw new Error("unsafe or oversized build identity file");
-  }
-  const descriptor = openSync(filePath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
-  try {
-    const openedStats = fstatSync(descriptor);
-    if (
-      !openedStats.isFile()
-      || openedStats.dev !== leafStats.dev
-      || openedStats.ino !== leafStats.ino
-      || openedStats.size > maxBytes
-    ) {
-      throw new Error("build identity file changed before reading");
-    }
-    const contents = readFileSync(descriptor);
-    const finalStats = fstatSync(descriptor);
-    if (contents.length !== openedStats.size || finalStats.size !== openedStats.size) {
-      throw new Error("build identity file changed while reading");
-    }
-    return contents;
-  } finally {
-    closeSync(descriptor);
-  }
-}
-
 function hashRuntimeManifest(value: unknown): string {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Preflight Scout cannot establish an exact package build identity: package metadata is invalid.");
@@ -507,6 +477,42 @@ function hashRuntimeManifest(value: unknown): string {
     optionalDependencies: canonicalizeInternalDependencyRanges(manifest.optionalDependencies, packageVersion),
     peerDependencies: canonicalizeInternalDependencyRanges(manifest.peerDependencies, packageVersion)
   }));
+}
+
+function packageMetadataFailure(error: unknown): string {
+  if (!(error instanceof BuildIdentityReadError)) return "package metadata is malformed";
+  switch (error.failure) {
+    case "unavailable":
+      return "package metadata is unavailable";
+    case "unsafe":
+      return "package metadata is not a safe regular file";
+    case "oversized":
+      return "package metadata exceeds the safety limit";
+    case "changed-before-read":
+      return "package metadata changed before it could be read";
+    case "changed-while-read":
+      return "package metadata changed while it was read";
+    case "device-identity-unavailable-before-read":
+      return "package metadata has no comparable device identity before reading";
+    case "device-identity-unavailable-while-read":
+      return "package metadata has no comparable device identity while reading";
+    case "device-identity-mismatch-before-read":
+      return "package metadata path and handle device identities differ before reading";
+    case "device-identity-mismatch-while-read":
+      return "package metadata device identity changed while it was read";
+    case "file-id-unavailable-before-read":
+      return "package metadata has no comparable file identity before reading";
+    case "file-id-unavailable-while-read":
+      return "package metadata has no comparable file identity while reading";
+    case "file-id-mismatch-before-read":
+      return "package metadata path and handle file identities differ before reading";
+    case "file-id-mismatch-while-read":
+      return "package metadata file identity changed while it was read";
+    case "snapshot-mismatch-before-read":
+      return "package metadata path and handle snapshots differ before reading";
+    case "snapshot-mismatch-while-read":
+      return "package metadata snapshot changed while it was read";
+  }
 }
 
 function canonicalizeInternalDependencyRanges(value: unknown, packageVersion?: string): unknown {
