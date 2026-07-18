@@ -378,6 +378,7 @@ export async function resolveAnalysisOutputDir(
   }
   const requested = path.resolve(resolveRepoPath(resolvedRoot, explicitPath));
   if (isPathWithin(resolvedRoot, requested)) {
+    await assertExplicitRepoOutputDirectoryIsSafe(resolvedRoot, requested);
     return { directory: requested, boundary: resolvedRoot };
   }
   return resolveExternalWriteDirectory(requested);
@@ -458,6 +459,35 @@ async function resolveExternalWriteDirectory(
     if (parent === existing) throw new Error("The explicit external output directory has no safe existing ancestor.");
     missingSegments.unshift(path.basename(existing));
     existing = parent;
+  }
+}
+
+async function assertExplicitRepoOutputDirectoryIsSafe(root: string, outputDir: string): Promise<void> {
+  try {
+    await assertPathHasNoSymlinks(root, outputDir, { allowMissing: true, leafType: "directory" });
+  } catch {
+    throw explicitRepoOutputPathError("it traverses an unsafe symbolic-link or non-directory path");
+  }
+
+  const relativePath = path.relative(root, outputDir).split(path.sep).join("/");
+  if (!relativePath) {
+    throw explicitRepoOutputPathError("the repository root cannot be used as an artifact directory");
+  }
+  try {
+    const git = await createTrustedGit({ targetRoot: root });
+    const { stdout } = await git.exec(["rev-parse", "--is-inside-work-tree"], { cwd: root });
+    if (stdout.trim() !== "true") throw new Error("not inside a Git worktree");
+    if (await gitPredicate(git, root, ["--literal-pathspecs", "ls-files", "--error-unmatch", "--", relativePath])) {
+      throw explicitRepoOutputPathError("it must be untracked and ignored by Git");
+    }
+    if (!await gitPredicate(git, root, ["check-ignore", "--quiet", "--", `${relativePath}/`])) {
+      throw explicitRepoOutputPathError("it must be untracked and ignored by Git");
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("Refusing explicit in-repository output directory")) {
+      throw error;
+    }
+    throw explicitRepoOutputPathError("Git could not prove that it is untracked and ignored");
   }
 }
 
@@ -582,6 +612,13 @@ function contractOutputPathError(
     `Refusing contract-derived output directory ${JSON.stringify(configuredPath)}: ${reason}. `
     + `If another path is intentional, pass it explicitly with ${explicitFlag}.`,
     cause === undefined ? undefined : { cause }
+  );
+}
+
+function explicitRepoOutputPathError(reason: string): Error {
+  return new Error(
+    `Refusing explicit in-repository output directory: ${reason}. `
+    + "Use an ignored path or pass an explicit path outside the repository."
   );
 }
 

@@ -18,19 +18,22 @@ import { defaultArtifactName, resolveActionAppUrl, setCommitStatus, upsertPullRe
 import { ensurePullRequestRefs } from "./git.js";
 import { inputValue, readInputs } from "./inputs.js";
 import { ACTION_ANALYSIS_RUNTIME, ACTION_EXECUTION_RUNTIME, runAutomationCandidates, selectAutomationCandidates } from "./missions.js";
+import { resolveActionOutputDirectory } from "./output.js";
 
 async function main(): Promise<void> {
   const pull = github.context.payload.pull_request;
   if (!pull) throw new Error("Preflight Scout only runs on pull_request events for now.");
 
   const inputs = readInputs();
+  const workspace = process.cwd();
+  const output = await resolveActionOutputDirectory(workspace, inputs.outputDir);
   const failOn = parseFailOn(inputs.failOn);
   const octokit = github.getOctokit(inputs.token);
   await setCommitStatus(octokit, pull, "pending", "Preflight Scout analysis is running");
 
   await ensurePullRequestRefs(pull.base.sha, pull.head.sha);
   const analysis = await analyzePullRequest({
-    root: process.cwd(),
+    root: workspace,
     base: pull.base.sha,
     head: pull.head.sha,
     title: pull.title,
@@ -61,8 +64,8 @@ async function main(): Promise<void> {
         appUrl: resolvedAppUrl,
         contract: analysis.contract,
         llm,
-        root: process.cwd(),
-        outputDir: await createAnalysisEvidenceDirectory(inputs.outputDir, process.cwd()),
+        root: workspace,
+        outputDir: await createAnalysisEvidenceDirectory(output.directory, output.boundary),
         headless: inputs.headless,
         maxTurns: inputs.maxTurns,
         storageState: inputs.storageState,
@@ -74,7 +77,7 @@ async function main(): Promise<void> {
 
   const generatedAt = new Date().toISOString();
   const provenance = await createAnalysisProvenance({
-    root: process.cwd(),
+    root: workspace,
     baseCommit: pull.base.sha,
     headCommit: pull.head.sha,
     contract: analysis.contract,
@@ -88,8 +91,8 @@ async function main(): Promise<void> {
     runResults,
     generatedAt
   });
-  await writeAnalysisArtifacts(inputs.outputDir, {
-    boundary: process.cwd(),
+  await writeAnalysisArtifacts(output.directory, {
+    boundary: output.boundary,
     impactMap: analysis.impactMap,
     mission: analysis.mission,
     provenance,
@@ -98,10 +101,10 @@ async function main(): Promise<void> {
     reportSummary: summary
   });
 
-  await fs.access(path.join(inputs.outputDir, "report.md"));
+  await fs.access(path.join(output.directory, "report.md"));
   const artifactName = inputs.artifactName ?? defaultArtifactName(pull);
   const artifactId = inputs.uploadArtifact
-    ? await uploadReportArtifact(inputs.outputDir, artifactName, process.cwd())
+    ? await uploadReportArtifact(output.directory, artifactName, output.boundary)
     : undefined;
   if (inputs.comment) {
     await upsertPullRequestComment(octokit, pull, renderPullRequestComment({
@@ -124,9 +127,9 @@ async function main(): Promise<void> {
   core.setOutput("failed-count", String(summary.counts.failed));
   core.setOutput("blocked-count", String(summary.counts.blocked));
   core.setOutput("fail-on", failOn);
-  core.setOutput("report-path", path.join(inputs.outputDir, "report.md"));
-  core.setOutput("report-html-path", path.join(inputs.outputDir, "report.html"));
-  core.setOutput("summary-path", path.join(inputs.outputDir, "report-summary.json"));
+  core.setOutput("report-path", path.join(output.directory, "report.md"));
+  core.setOutput("report-html-path", path.join(output.directory, "report.html"));
+  core.setOutput("summary-path", path.join(output.directory, "report-summary.json"));
   if (resolvedAppUrl) core.setOutput("app-url", resolvedAppUrl);
   if (artifactId) core.setOutput("artifact-id", String(artifactId));
 

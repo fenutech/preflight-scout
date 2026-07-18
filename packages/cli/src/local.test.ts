@@ -241,6 +241,55 @@ describe("loadEnvFile", () => {
     });
   });
 
+  it("rejects an explicit in-repository output directory that Git does not ignore", async () => {
+    await expect(resolveAnalysisOutputDir(
+      dir,
+      "preflight-output",
+      undefined
+    )).rejects.toThrow("must be untracked and ignored by Git");
+  });
+
+  it("accepts an explicit in-repository output directory only after Git excludes it", async () => {
+    await writeFile(path.join(dir, ".gitignore"), "preflight-output/\n");
+
+    await expect(resolveAnalysisOutputDir(
+      dir,
+      "preflight-output",
+      undefined
+    )).resolves.toEqual({
+      directory: path.join(dir, "preflight-output"),
+      boundary: dir
+    });
+  });
+
+  it("rejects an explicit in-repository output directory containing tracked files", async () => {
+    await mkdir(path.join(dir, "preflight-output"));
+    await writeFile(path.join(dir, "preflight-output", "tracked.txt"), "tracked\n");
+    await execFileAsync("git", ["add", "preflight-output/tracked.txt"], { cwd: dir });
+
+    await expect(resolveAnalysisOutputDir(
+      dir,
+      "preflight-output",
+      undefined
+    )).rejects.toThrow("must be untracked and ignored by Git");
+  });
+
+  it.skipIf(process.platform === "win32")("rejects a symlinked explicit in-repository output directory", async () => {
+    const external = await mkdtemp(path.join(tmpdir(), "preflight-scout-explicit-output-external-"));
+    try {
+      await writeFile(path.join(dir, ".gitignore"), "preflight-output/\n");
+      await symlink(external, path.join(dir, "preflight-output"));
+
+      await expect(resolveAnalysisOutputDir(
+        dir,
+        "preflight-output",
+        undefined
+      )).rejects.toThrow("unsafe symbolic-link or non-directory path");
+    } finally {
+      await rm(external, { recursive: true, force: true });
+    }
+  });
+
   it("falls back to the standard analysis run directory when no output is configured", async () => {
     await writeFile(path.join(dir, ".gitignore"), ".preflight-scout/runs/\n");
 
