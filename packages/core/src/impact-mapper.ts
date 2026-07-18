@@ -62,10 +62,11 @@ Your job is to infer product impact from code and config context, like a senior 
 Do not use generic checklists.
 Do not pretend certainty. If repo context is insufficient, add concrete unknowns.
 If fileInventoryCoverage, contextCoverage, or promptCoverage says context is incomplete, state that in unknowns and do not claim exhaustive impact coverage.
+The repositoryInventory field is bounded raw context, not a detected product map. The built-in indexer classifies package-manager evidence only; its other context is raw Git-visible file paths and selected root project-file excerpts. Empty frameworks, routes, components, tests, configFiles, or integrationHints arrays mean unclassified, not absent.
 Every affected area must include evidence tied to changed files, routes, or explicit contract context.`;
   const promptPayload = JSON.stringify({
     task: "Map this pull request to user-visible QA impact: routes, APIs, roles, data, integrations, and release risk.",
-    repoIndex: boundRepoIndexForPrompt(repoIndex),
+    repositoryInventory: boundRepoIndexForPrompt(repoIndex),
     contract: boundContractForPrompt(contract),
     pullRequest: boundPullRequestForPrompt(pullRequest)
   });

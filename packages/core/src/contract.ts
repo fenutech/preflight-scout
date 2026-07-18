@@ -2,7 +2,7 @@ import path from "node:path";
 import YAML from "yaml";
 import { browserCredentialKindForEnvName } from "./credential-env.js";
 import { readTextIfExists, writeTextEnsuringDir } from "./fs.js";
-import { redactRepoIndex } from "./redaction.js";
+import { normalizeRepoFileInventoryCoverage, redactRepoIndex } from "./redaction.js";
 import type { QAContract, RepoIndex } from "./types.js";
 import type { LLMClient, LLMMessage } from "./llm.js";
 import { QAContractSchema } from "./schemas.js";
@@ -18,7 +18,14 @@ export class TargetEnvironmentError extends Error {
   override readonly name = "TargetEnvironmentError";
 }
 
-export const DEFAULT_CONTRACT: QAContract = {
+function deepFreeze<T extends object>(value: T): T {
+  for (const nested of Object.values(value)) {
+    if (nested && typeof nested === "object") deepFreeze(nested);
+  }
+  return Object.freeze(value);
+}
+
+const CANONICAL_DEFAULT_CONTRACT: QAContract = deepFreeze({
   app: {
     previewUrlSource: "unknown"
   },
@@ -39,12 +46,20 @@ export const DEFAULT_CONTRACT: QAContract = {
   },
   testData: {},
   unknowns: ["staging URL", "test credentials", "safe test data"]
-};
+});
+
+function cloneDefaultContract(): QAContract {
+  return structuredClone(CANONICAL_DEFAULT_CONTRACT);
+}
+
+// Retain the public mutable object contract while isolating all runtime
+// defaults from consumer mutations.
+export const DEFAULT_CONTRACT: QAContract = cloneDefaultContract();
 
 export async function loadContract(root: string): Promise<QAContract> {
   const filePath = path.join(root, ".preflight-scout", "config.yml");
   const text = await readTextIfExists(filePath, { boundary: root, maxBytes: 1024 * 1024 });
-  if (!text) return DEFAULT_CONTRACT;
+  if (!text) return cloneDefaultContract();
   return QAContractSchema.parse(normalizeContract(YAML.parse(text) as Partial<QAContract>));
 }
 
@@ -149,7 +164,7 @@ export async function draftContractWithLLM(repoIndex: RepoIndex, llm: LLMClient)
 }
 
 export function draftBlankContract(repoIndex: RepoIndex): QAContract {
-  const contract = structuredClone(DEFAULT_CONTRACT);
+  const contract = cloneDefaultContract();
   contract.app.name = repoIndex.root.split(path.sep).pop();
   contract.app.type = repoIndex.frameworks.join(", ") || "unknown";
   contract.unknowns = [
@@ -163,17 +178,19 @@ export function draftBlankContract(repoIndex: RepoIndex): QAContract {
 }
 
 function normalizeContract(input: Partial<QAContract>): QAContract {
+  const defaults = cloneDefaultContract();
+  const source = structuredClone(input);
   return {
-    ...DEFAULT_CONTRACT,
-    ...input,
-    app: { ...DEFAULT_CONTRACT.app, ...input.app },
-    auth: input.auth ? { ...DEFAULT_CONTRACT.auth, ...input.auth } : DEFAULT_CONTRACT.auth,
-    defaults: { ...DEFAULT_CONTRACT.defaults, ...input.defaults },
-    dangerousActions: { ...DEFAULT_CONTRACT.dangerousActions, ...input.dangerousActions },
-    criticalFlows: input.criticalFlows ?? DEFAULT_CONTRACT.criticalFlows,
-    sensitiveAreas: input.sensitiveAreas ?? DEFAULT_CONTRACT.sensitiveAreas,
-    testData: input.testData ?? DEFAULT_CONTRACT.testData,
-    unknowns: input.unknowns ?? DEFAULT_CONTRACT.unknowns
+    ...defaults,
+    ...source,
+    app: { ...defaults.app, ...source.app },
+    auth: source.auth ? { ...defaults.auth, ...source.auth } : defaults.auth,
+    defaults: { ...defaults.defaults, ...source.defaults },
+    dangerousActions: { ...defaults.dangerousActions, ...source.dangerousActions },
+    criticalFlows: source.criticalFlows ?? defaults.criticalFlows,
+    sensitiveAreas: source.sensitiveAreas ?? defaults.sensitiveAreas,
+    testData: source.testData ?? defaults.testData,
+    unknowns: source.unknowns ?? defaults.unknowns
   };
 }
 
@@ -228,7 +245,7 @@ function applyInitialContractOptions(contract: QAContract, options: InitialContr
     // The init model may describe QA policy, but it must not choose a
     // filesystem destination. Keep the generated default inside the guarded
     // runs boundary unless the human supplied an explicit init option.
-    outputDir: options.outputDir ?? DEFAULT_CONTRACT.defaults?.outputDir
+    outputDir: options.outputDir ?? CANONICAL_DEFAULT_CONTRACT.defaults?.outputDir
   };
   return QAContractSchema.parse(next);
 }
@@ -291,15 +308,27 @@ function draftEnvExample(contract: QAContract): string {
 }
 
 function draftContext(repoIndex: RepoIndex): string {
+  const manifestNames = Object.keys(repoIndex.manifests);
+  const coverage = normalizeRepoFileInventoryCoverage(repoIndex);
+  const fileInventoryCoverage = coverage.state === "unknown"
+    ? "unknown (coverage metadata unavailable; do not treat this inventory as exhaustive)"
+    : coverage.complete
+      ? `complete (${coverage.includedFiles} file paths included; limit ${coverage.maxFiles})`
+      : `INCOMPLETE (${coverage.includedFiles} file paths included at the ${coverage.maxFiles}-file limit; this inventory is not exhaustive)`;
   return `# Preflight Scout Context
 
 This file is human-maintained context for release QA. Keep it short and concrete.
 
-## Detected Stack
+## Repository Inventory
 
-- Frameworks: ${repoIndex.frameworks.join(", ") || "unknown"}
 - Package manager: ${repoIndex.packageManager ?? "unknown"}
-- Integrations: ${repoIndex.integrationHints.join(", ") || "none detected"}
+- Indexed file paths included: ${repoIndex.files.length}
+- File inventory coverage: ${fileInventoryCoverage}
+- Read root project files: ${manifestNames.join(", ") || "none"}
+
+The built-in indexer does not classify frameworks, routes, components, tests,
+configuration files, or integrations. Add confirmed details below; an empty
+classification field means unclassified, not absent.
 
 ## Product Notes
 
@@ -367,6 +396,7 @@ Return only valid JSON matching QAContract:
 Figure out the initial QA contract from repo facts. Be bold where the repo gives evidence, but mark unknowns where humans must confirm.
 Prefer short flow names that identify durable product journeys, such as "public_codex_browse", "admin_login", or "checkout_happy_path"; do not put full sentences in criticalFlows.
 Do not invent secrets. Use env var names for credentials.
+The repositoryInventory field is bounded raw context, not a detected-stack map. The built-in indexer classifies package-manager evidence only; its other context is raw Git-visible file paths and selected root project-file excerpts. Empty frameworks, routes, components, tests, configFiles, or integrationHints arrays mean unclassified, not absent.
 Always return ".preflight-scout/runs/latest" for defaults.outputDir. Preflight Scout treats artifact paths as trusted local policy and will replace model-proposed values.
 This config is a draft for humans to review.`
     },
@@ -375,7 +405,7 @@ This config is a draft for humans to review.`
       content: JSON.stringify(
         {
           task: "Draft the initial .preflight-scout/config.yml for this repository.",
-          repoIndex
+          repositoryInventory: repoIndex
         },
         null,
         2
