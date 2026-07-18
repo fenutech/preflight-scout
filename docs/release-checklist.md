@@ -138,6 +138,12 @@ pnpm -r --filter './packages/*' publish --access public --dry-run --no-git-check
 - [ ] Run the generic demo through the installed skill, review its analysis,
       execute with `--analysis-dir`, and confirm the reviewed impact-map and
       mission hashes remain unchanged.
+- [ ] Confirm missing, foreign-repository, commit-stale, contract-stale,
+      mission-tampered, result-tampered, and evidence-tampered analysis
+      directories fail before model or browser execution.
+- [ ] Reuse one output directory for a fresh analysis and confirm browser
+      results left by the prior generation cannot affect the new report or
+      regression promotion.
 - [ ] Review one synthetic or explicitly approved report covering passing,
       failed, blocked, and no-browser-evidence outcomes.
 - [ ] Test authenticated storage-state save, reuse, rejection, and redaction

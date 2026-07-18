@@ -36,6 +36,35 @@ Preflight Scout runs on developer workstations and in CI. It can handle source c
 - Changed sensitive/generated files remain visible to impact analysis by path,
   status, and line counts, but their patch and file content are replaced before
   PR context is sent to the model.
+- `run --analysis-dir`, `replay --mission`, `agent-run --analysis-dir`, report
+  rebuilding, and regression promotion use a manifest written last for the current generation.
+  Report rebuilding checks current core package/schema compatibility and the
+  manifest's reviewed-artifact, declared-result, and evidence digests. Browser
+  execution, delegated-agent execution, and promotion additionally compare the
+  current repository identity, indexed context, exact commits, contract, and
+  exact Preflight Scout analysis-entrypoint package code/build. Promotion also
+  requires the same recorded Preflight Scout browser executor code/build.
+  Packaged entrypoints verify their package metadata and every declared
+  Preflight Scout-owned output before accepting those identities. This does not
+  attest third-party dependencies, Node.js, the operating system, or the
+  browser build.
+  Missing, foreign, stale, or modified bundles fail closed before browser,
+  delegated-agent, or promotion model execution. This detects inconsistent
+  bundles; it is not a signature against replacement of the whole bundle and
+  all digests by the same attacker.
+- An exclusive run-directory generation lock covers same-directory
+  compare-before-replace and manifest-last publication. Each browser invocation
+  writes into a unique evidence-generation directory, and replacement
+  revalidates the complete declared bundle while holding the lock. Artifact
+  reads, cleanup, and writes reject symlinked ancestors outside their trusted
+  boundary. Explicit external artifact paths receive a separately canonicalized
+  boundary; contract-derived paths remain repository-confined.
+- Optional PDF rendering uses a unique temporary path. `report.pdf` is replaced
+  under the generation lock only after the complete source bundle is confirmed
+  current; a late renderer for an obsolete generation fails closed.
+- Run-result JSON contains portable run-relative evidence paths rather than raw
+  checkout paths. Outside-run paths and URI-shaped evidence are rejected before
+  any report artifact is written.
 - Browser credentials are resolved from environment variables only when an action needs them. Names must match `PREFLIGHT_SCOUT_BROWSER_<LABEL>_(EMAIL|USERNAME|PASSWORD)`, and only mappings for the mission's exact selected role are exposed. Provider and infrastructure secret names are rejected even when a malicious contract maps them.
 - Reports redact configured secrets and use environment-variable names instead of values.
 - A repository-local `.env.preflight-scout.local` must be ignored and untracked.

@@ -122,7 +122,7 @@ async function validateInstalledRuntime(globalRoot, prefix, expectedVersion) {
       throw new Error(`npm global installation resolved ${manifest.name}@${manifest.version} instead of ${expected.name}@${expectedVersion}.`);
     }
     const stamp = JSON.parse(await readFile(path.join(packageRoot, "dist", ".preflight-scout-build.json"), "utf8"));
-    if (stamp.schemaVersion !== 2 || stamp.packageName !== expected.name || stamp.packageVersion !== expectedVersion) {
+    if (stamp.schemaVersion !== 3 || stamp.packageName !== expected.name || stamp.packageVersion !== expectedVersion || !/^sha256:[0-9a-f]{64}$/.test(stamp.packageRuntimeHash) || !/^sha256:[0-9a-f]{64}$/.test(stamp.sourceHash)) {
       throw new Error(`npm global installation found an invalid build stamp for ${expected.name}.`);
     }
     resolvedPackages.set(expected.name, packageRoot);

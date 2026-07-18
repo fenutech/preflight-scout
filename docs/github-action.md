@@ -147,6 +147,7 @@ This is deterministic environment discovery. The LLM still owns product reasonin
 
 The uploaded artifact contains:
 
+- `analysis-manifest.json`
 - `impact-map.json`
 - `mission.json`
 - `report.md`

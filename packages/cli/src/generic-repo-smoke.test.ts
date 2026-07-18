@@ -134,6 +134,7 @@ describe("generic repo smoke", () => {
     });
     const runResults: MissionRunResult[] = [runResult];
     await writeAnalysisArtifacts(path.join(dir, "run"), {
+      boundary: dir,
       impactMap: analysis.impactMap,
       mission: analysis.mission,
       runResults
@@ -206,6 +207,7 @@ describe("generic repo smoke", () => {
         storageState
       });
       await writeAnalysisArtifacts(path.join(dir, "auth-run"), {
+        boundary: dir,
         impactMap: analysis.impactMap,
         mission: analysis.mission,
         runResults: [missionResult]

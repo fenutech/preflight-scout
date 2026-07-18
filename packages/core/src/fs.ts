@@ -401,6 +401,10 @@ export async function assertPathHasNoSymlinks(
   }
 }
 
+export async function ensureSafeDirectoryForWrite(boundary: string, directory: string): Promise<void> {
+  await ensureSafeDirectoryPath(path.resolve(boundary), path.resolve(directory));
+}
+
 async function nearestExistingDirectory(candidate: string): Promise<string> {
   let cursor = path.resolve(candidate);
   for (;;) {
@@ -456,7 +460,11 @@ async function ensureSafeDirectoryPath(boundary: string, directory: string): Pro
       }
     } catch (error) {
       if (!isMissingPathError(error)) throw error;
-      await fs.mkdir(cursor, { mode: 0o700 });
+      try {
+        await fs.mkdir(cursor, { mode: 0o700 });
+      } catch (mkdirError) {
+        if ((mkdirError as NodeJS.ErrnoException).code !== "EEXIST") throw mkdirError;
+      }
       const stats = await fs.lstat(cursor);
       if (stats.isSymbolicLink() || !stats.isDirectory()) {
         throw new Error(`Refusing write through unsafe directory ${cursor}`);

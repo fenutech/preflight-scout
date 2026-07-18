@@ -3,14 +3,25 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium } from "playwright";
 
-export async function printHtmlReportToPdf(input: { htmlPath: string; pdfPath: string }): Promise<string> {
-  const htmlPath = path.resolve(input.htmlPath);
-  const htmlStat = await lstat(htmlPath);
-  if (!htmlStat.isFile() || htmlStat.isSymbolicLink() || htmlStat.nlink !== 1) {
-    throw new Error("PDF source must be a uniquely linked regular HTML file, not a symlink or hard link.");
+export async function printHtmlReportToPdf(input: {
+  htmlPath?: string;
+  htmlContent?: string;
+  pdfPath: string;
+}): Promise<string> {
+  if ((input.htmlPath !== undefined) === (input.htmlContent !== undefined)) {
+    throw new Error("PDF rendering requires exactly one HTML source.");
   }
-  const canonicalHtmlPath = await realpath(htmlPath);
-  const reportRoot = await realpath(path.dirname(htmlPath));
+  let canonicalHtmlPath: string | undefined;
+  let reportRoot: string | undefined;
+  if (input.htmlPath) {
+    const htmlPath = path.resolve(input.htmlPath);
+    const htmlStat = await lstat(htmlPath);
+    if (!htmlStat.isFile() || htmlStat.isSymbolicLink() || htmlStat.nlink !== 1) {
+      throw new Error("PDF source must be a uniquely linked regular HTML file, not a symlink or hard link.");
+    }
+    canonicalHtmlPath = await realpath(htmlPath);
+    reportRoot = await realpath(path.dirname(htmlPath));
+  }
   const requestedPdfPath = path.resolve(input.pdfPath);
   const requestedPdfParent = path.dirname(requestedPdfPath);
   await mkdir(requestedPdfParent, { recursive: true });
@@ -32,13 +43,17 @@ export async function printHtmlReportToPdf(input: { htmlPath: string; pdfPath: s
   try {
     const page = await browser.newPage({ javaScriptEnabled: false, serviceWorkers: "block" });
     await page.route("**/*", async (route) => {
-      if (await isAllowedReportRequest(route.request().url(), reportRoot)) {
+      if (reportRoot && await isAllowedReportRequest(route.request().url(), reportRoot)) {
         await route.continue();
       } else {
         await route.abort("blockedbyclient");
       }
     });
-    await page.goto(pathToFileURL(canonicalHtmlPath).toString(), { waitUntil: "networkidle" });
+    if (input.htmlContent !== undefined) {
+      await page.setContent(input.htmlContent, { waitUntil: "networkidle" });
+    } else {
+      await page.goto(pathToFileURL(canonicalHtmlPath!).toString(), { waitUntil: "networkidle" });
+    }
     await page.pdf({
       path: pdfPath,
       format: "A4",

@@ -181,6 +181,12 @@ export async function resolveBaseRef(root: string, explicit: string | undefined,
   throw new Error("Could not resolve a base ref. Pass --base, set PREFLIGHT_SCOUT_BASE_REF, or add defaults.baseRef to .preflight-scout/config.yml.");
 }
 
+export async function resolveHeadRef(root: string, reference = "HEAD"): Promise<string> {
+  const resolvedRoot = path.resolve(root);
+  const git = await createTrustedGit({ targetRoot: resolvedRoot });
+  return resolveTrustedGitCommit(git, resolvedRoot, reference);
+}
+
 export async function resolveStorageOptions(
   root: string,
   contract: QAContract,
@@ -362,9 +368,57 @@ export async function resolveAnalysisOutputDir(
   root: string,
   explicitPath: string | undefined,
   configuredPath: string | undefined
-): Promise<string> {
-  if (explicitPath) return resolveRepoPath(root, explicitPath);
-  return resolveContractOutputDir(root, configuredPath ?? ".preflight-scout/runs/latest");
+): Promise<{ directory: string; boundary: string }> {
+  const resolvedRoot = path.resolve(root);
+  if (!explicitPath) {
+    return {
+      directory: await resolveContractOutputDir(resolvedRoot, configuredPath ?? ".preflight-scout/runs/latest"),
+      boundary: resolvedRoot
+    };
+  }
+  const requested = path.resolve(resolveRepoPath(resolvedRoot, explicitPath));
+  if (isPathWithin(resolvedRoot, requested)) {
+    return { directory: requested, boundary: resolvedRoot };
+  }
+  return resolveExternalWriteDirectory(requested);
+}
+
+export async function resolveArtifactReadDirectory(
+  root: string,
+  value: string
+): Promise<{ directory: string; boundary: string }> {
+  const resolvedRoot = path.resolve(root);
+  const requested = path.resolve(resolveRepoPath(resolvedRoot, value));
+  if (isPathWithin(resolvedRoot, requested)) {
+    return { directory: requested, boundary: resolvedRoot };
+  }
+  try {
+    const canonical = await fs.realpath(requested);
+    const stats = await fs.lstat(canonical);
+    if (!stats.isDirectory() || stats.isSymbolicLink()) throw new Error("not a directory");
+    return { directory: canonical, boundary: canonical };
+  } catch {
+    throw new Error("The explicit external artifact directory does not exist or is unsafe.");
+  }
+}
+
+export async function resolveArtifactReadFile(
+  root: string,
+  value: string
+): Promise<{ file: string; boundary: string }> {
+  const resolvedRoot = path.resolve(root);
+  const requested = path.resolve(resolveRepoPath(resolvedRoot, value));
+  if (isPathWithin(resolvedRoot, requested)) {
+    return { file: requested, boundary: resolvedRoot };
+  }
+  try {
+    const canonical = await fs.realpath(requested);
+    const stats = await fs.lstat(canonical);
+    if (!stats.isFile() || stats.isSymbolicLink()) throw new Error("not a file");
+    return { file: canonical, boundary: path.dirname(canonical) };
+  } catch {
+    throw new Error("The explicit external artifact file does not exist or is unsafe.");
+  }
 }
 
 export function createProgressReporter(enabled = true): ProgressCallback {
@@ -379,6 +433,32 @@ export function createProgressReporter(enabled = true): ProgressCallback {
 
 export function resolveRepoPath(root: string, value: string): string {
   return path.isAbsolute(value) ? value : path.join(root, value);
+}
+
+async function resolveExternalWriteDirectory(
+  requested: string
+): Promise<{ directory: string; boundary: string }> {
+  let existing = requested;
+  const missingSegments: string[] = [];
+  for (;;) {
+    try {
+      const canonicalBoundary = await fs.realpath(existing);
+      const stats = await fs.lstat(canonicalBoundary);
+      if (!stats.isDirectory() || stats.isSymbolicLink()) throw new Error("unsafe directory");
+      return {
+        directory: path.join(canonicalBoundary, ...missingSegments),
+        boundary: canonicalBoundary
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw new Error("The explicit external output directory is unsafe.");
+      }
+    }
+    const parent = path.dirname(existing);
+    if (parent === existing) throw new Error("The explicit external output directory has no safe existing ancestor.");
+    missingSegments.unshift(path.basename(existing));
+    existing = parent;
+  }
 }
 
 function parseEnvLine(line: string): [string, string] | undefined {

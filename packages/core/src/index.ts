@@ -9,6 +9,7 @@ export * from "./llm.js";
 export * from "./mission-planner.js";
 export * from "./pipeline.js";
 export * from "./promotion.js";
+export * from "./provenance.js";
 export * from "./repo-indexer.js";
 export * from "./redaction.js";
 export * from "./report.js";

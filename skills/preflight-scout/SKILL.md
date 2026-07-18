@@ -72,6 +72,10 @@ preflight-scout agent-run --analysis-dir .preflight-scout/runs/latest --agent cl
 ```
 
 Do not omit `--analysis-dir` after reviewing an analysis. Without it, `agent-run` creates a new analysis from the requested refs instead of reusing the approved mission.
+If reuse fails because the manifest is missing, stale, foreign, or modified,
+rerun `preflight-scout analyze` and review the replacement artifacts. Do not
+edit an old analysis directory or copy one from another repository to bypass
+the check.
 
 8. Read `report-summary.json` and the human report (`report.md`, `report.html`, or `report.pdf`). Lead with release readiness, failures, blockers, unknowns, affected surfaces, and evidence paths.
 9. Run `preflight-scout promote --run-dir .preflight-scout/runs/latest --output-dir tests/preflight-scout` only after the user approves creating a durable test. Review the generated test before presenting it as usable.

@@ -5,6 +5,8 @@ import path from "node:path";
 import {
   analyzePullRequest,
   buildHumanReportSummary,
+  createAnalysisEvidenceDirectory,
+  createAnalysisProvenance,
   createDefaultLLMFromEnv,
   writeAnalysisArtifacts,
   type MissionRunResult
@@ -15,7 +17,7 @@ import { parseFailOn, shouldFail, statusDescription } from "./gate.js";
 import { defaultArtifactName, resolveActionAppUrl, setCommitStatus, upsertPullRequestComment } from "./github.js";
 import { ensurePullRequestRefs } from "./git.js";
 import { inputValue, readInputs } from "./inputs.js";
-import { runAutomationCandidates, selectAutomationCandidates } from "./missions.js";
+import { ACTION_ANALYSIS_RUNTIME, ACTION_EXECUTION_RUNTIME, runAutomationCandidates, selectAutomationCandidates } from "./missions.js";
 
 async function main(): Promise<void> {
   const pull = github.context.payload.pull_request;
@@ -60,7 +62,7 @@ async function main(): Promise<void> {
         contract: analysis.contract,
         llm,
         root: process.cwd(),
-        outputDir: inputs.outputDir,
+        outputDir: await createAnalysisEvidenceDirectory(inputs.outputDir, process.cwd()),
         headless: inputs.headless,
         maxTurns: inputs.maxTurns,
         storageState: inputs.storageState,
@@ -71,6 +73,15 @@ async function main(): Promise<void> {
   }
 
   const generatedAt = new Date().toISOString();
+  const provenance = await createAnalysisProvenance({
+    root: process.cwd(),
+    baseCommit: pull.base.sha,
+    headCommit: pull.head.sha,
+    contract: analysis.contract,
+    repoIndex: analysis.repoIndex,
+    createdAt: generatedAt,
+    analysisRuntime: ACTION_ANALYSIS_RUNTIME
+  });
   const summary = buildHumanReportSummary({
     impactMap: analysis.impactMap,
     mission: analysis.mission,
@@ -78,8 +89,11 @@ async function main(): Promise<void> {
     generatedAt
   });
   await writeAnalysisArtifacts(inputs.outputDir, {
+    boundary: process.cwd(),
     impactMap: analysis.impactMap,
     mission: analysis.mission,
+    provenance,
+    ...(runResults ? { executionRuntime: ACTION_EXECUTION_RUNTIME } : {}),
     runResults,
     reportSummary: summary
   });
@@ -87,7 +101,7 @@ async function main(): Promise<void> {
   await fs.access(path.join(inputs.outputDir, "report.md"));
   const artifactName = inputs.artifactName ?? defaultArtifactName(pull);
   const artifactId = inputs.uploadArtifact
-    ? await uploadReportArtifact(inputs.outputDir, artifactName, runResults)
+    ? await uploadReportArtifact(inputs.outputDir, artifactName, process.cwd())
     : undefined;
   if (inputs.comment) {
     await upsertPullRequestComment(octokit, pull, renderPullRequestComment({

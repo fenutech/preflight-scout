@@ -10,7 +10,10 @@ For each mission, Preflight Scout writes:
 - `network-errors.json`
 - `final-observation.json`
 
-`report.md` and `report.html` link to the evidence. In CI, the GitHub Action uploads the whole run directory as an artifact.
+`report.md` and `report.html` link to the evidence. In CI, the GitHub Action
+validates the manifest, re-hashes only the declared report/result/evidence
+files into a private staging directory, and uploads that immutable staged set.
+Undeclared or stale files in the run directory are not uploaded.
 
 Trace capture is enabled by default:
 

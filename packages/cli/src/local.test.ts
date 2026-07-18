@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -226,21 +226,58 @@ describe("loadEnvFile", () => {
       dir,
       undefined,
       ".preflight-scout/runs/configured-analysis"
-    )).resolves.toBe(path.join(dir, ".preflight-scout", "runs", "configured-analysis"));
+    )).resolves.toEqual({
+      directory: path.join(dir, ".preflight-scout", "runs", "configured-analysis"),
+      boundary: dir
+    });
 
     await expect(resolveAnalysisOutputDir(
       dir,
       ".preflight-scout/runs/explicit-analysis",
       ".preflight-scout/runs/configured-analysis"
-    )).resolves.toBe(path.join(dir, ".preflight-scout", "runs", "explicit-analysis"));
+    )).resolves.toEqual({
+      directory: path.join(dir, ".preflight-scout", "runs", "explicit-analysis"),
+      boundary: dir
+    });
   });
 
   it("falls back to the standard analysis run directory when no output is configured", async () => {
     await writeFile(path.join(dir, ".gitignore"), ".preflight-scout/runs/\n");
 
-    await expect(resolveAnalysisOutputDir(dir, undefined, undefined)).resolves.toBe(
-      path.join(dir, ".preflight-scout", "runs", "latest")
-    );
+    await expect(resolveAnalysisOutputDir(dir, undefined, undefined)).resolves.toEqual({
+      directory: path.join(dir, ".preflight-scout", "runs", "latest"),
+      boundary: dir
+    });
+  });
+
+  it("derives a separate trusted boundary for an explicit external output", async () => {
+    const external = await mkdtemp(path.join(tmpdir(), "preflight-scout-explicit-output-"));
+    try {
+      const canonicalExternal = await realpath(external);
+      await expect(resolveAnalysisOutputDir(
+        dir,
+        path.join(external, "nested", "run"),
+        undefined
+      )).resolves.toEqual({
+        directory: path.join(canonicalExternal, "nested", "run"),
+        boundary: canonicalExternal
+      });
+    } finally {
+      await rm(external, { recursive: true, force: true });
+    }
+  });
+
+  it("normalizes the standard macOS /tmp alias for a new explicit output", async () => {
+    const alias = "/tmp";
+    const aliasStats = await lstat(alias);
+    if (!aliasStats.isSymbolicLink()) return;
+    const canonicalTmp = await realpath(alias);
+    const leaf = `preflight-scout-output-${process.pid}-${Date.now()}`;
+
+    await expect(resolveAnalysisOutputDir(dir, path.join(alias, leaf), undefined)).resolves.toEqual({
+      directory: path.join(canonicalTmp, leaf),
+      boundary: canonicalTmp
+    });
   });
 
   it("rejects contract output traversal outside .preflight-scout/runs", async () => {
