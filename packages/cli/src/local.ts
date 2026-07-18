@@ -381,7 +381,18 @@ export async function resolveAnalysisOutputDir(
     await assertExplicitRepoOutputDirectoryIsSafe(resolvedRoot, requested);
     return { directory: requested, boundary: resolvedRoot };
   }
-  return resolveExternalWriteDirectory(requested);
+  const external = await resolveExternalWriteDirectory(requested);
+  let canonicalRoot: string;
+  try {
+    canonicalRoot = await fs.realpath(resolvedRoot);
+  } catch {
+    throw new Error("The repository root could not be canonicalized safely.");
+  }
+  if (isPathWithin(canonicalRoot, external.directory)) {
+    await assertExplicitRepoOutputDirectoryIsSafe(canonicalRoot, external.directory);
+    return { directory: external.directory, boundary: canonicalRoot };
+  }
+  return external;
 }
 
 export async function resolveArtifactReadDirectory(

@@ -290,6 +290,41 @@ describe("loadEnvFile", () => {
     }
   });
 
+  it.skipIf(process.platform === "win32")("rejects a lexical external alias that canonicalizes to the repository root", async () => {
+    const aliasParent = await mkdtemp(path.join(tmpdir(), "preflight-scout-output-alias-"));
+    try {
+      const alias = path.join(aliasParent, "repo-link");
+      await symlink(dir, alias, "dir");
+
+      await expect(resolveAnalysisOutputDir(
+        dir,
+        alias,
+        undefined
+      )).rejects.toThrow("repository root cannot be used as an artifact directory");
+    } finally {
+      await rm(aliasParent, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === "win32")("accepts a lexical external alias only when its canonical repository child is ignored", async () => {
+    const output = path.join(dir, "preflight-output");
+    const aliasParent = await mkdtemp(path.join(tmpdir(), "preflight-scout-output-alias-"));
+    try {
+      await mkdir(output);
+      await writeFile(path.join(dir, ".gitignore"), "preflight-output/\n");
+      const alias = path.join(aliasParent, "output-link");
+      await symlink(output, alias, "dir");
+
+      await expect(resolveAnalysisOutputDir(
+        dir,
+        alias,
+        undefined
+      )).resolves.toEqual({ directory: output, boundary: dir });
+    } finally {
+      await rm(aliasParent, { recursive: true, force: true });
+    }
+  });
+
   it("falls back to the standard analysis run directory when no output is configured", async () => {
     await writeFile(path.join(dir, ".gitignore"), ".preflight-scout/runs/\n");
 
