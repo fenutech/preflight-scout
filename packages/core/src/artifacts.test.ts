@@ -296,6 +296,59 @@ describe("analysis artifacts", () => {
     expect(movedBundle.runResults?.[0]?.artifacts).toEqual(["evidence/final-observation.json"]);
   });
 
+  it("rebuilds supplied report summaries from normalized run-result paths", async () => {
+    const runDir = path.join(dir, "normalized-summary");
+    const artifacts = boundArtifacts("normalized-summary", dir);
+    const runResult = await createRunResult(runDir, artifacts.mission.automationCandidates[0]!.id);
+    const generatedAt = "2026-07-18T01:02:03.000Z";
+    const reportSummary = {
+      generatedAt,
+      title: "stale caller summary",
+      risk: "high" as const,
+      verdict: "ready_for_human_review" as const,
+      releaseDecision: {
+        status: "ready_for_human_review" as const,
+        reason: "stale caller summary",
+        nextSteps: []
+      },
+      counts: {
+        affectedAreas: 0,
+        manualChecks: 0,
+        edgeCases: 0,
+        suggestedBrowserMissions: 0,
+        browserMissions: 1,
+        passed: 1,
+        failed: 0,
+        blocked: 0
+      },
+      browserMissions: [{
+        id: runResult.missionId,
+        status: runResult.status,
+        artifacts: runResult.artifacts,
+        evidence: runResult.evidence
+      }]
+    };
+    expect(JSON.stringify(reportSummary)).toContain(runDir);
+
+    await writeAnalysisArtifacts(runDir, {
+      ...artifacts,
+      runResults: [runResult],
+      reportSummary
+    });
+
+    const serializedSummary = await readFile(path.join(runDir, "report-summary.json"), "utf8");
+    expect(serializedSummary).not.toContain(dir);
+    expect(serializedSummary).not.toContain("stale caller summary");
+    expect(JSON.parse(serializedSummary)).toMatchObject({
+      generatedAt,
+      title: artifacts.mission.title,
+      browserMissions: [{
+        artifacts: ["evidence/final-observation.json"],
+        evidence: { finalObservationPath: "evidence/final-observation.json" }
+      }]
+    });
+  });
+
   it("never rediscovers stale browser results that a fresh generation did not declare", async () => {
     const artifacts = boundArtifacts("stale-result", dir);
     const runResult = await createRunResult(dir, artifacts.mission.automationCandidates[0]!.id);

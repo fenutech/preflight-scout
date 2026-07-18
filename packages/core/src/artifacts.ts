@@ -79,7 +79,10 @@ export async function writeAnalysisArtifacts(
       runDir,
       generatedAt
     });
-    const summary = artifacts.reportSummary ?? buildHumanReportSummary({
+    // A caller may have built reportSummary before its browser-result paths
+    // were normalized for this run directory. Rebuild every derived field
+    // from the normalized results and retain only the shared timestamp.
+    const summary = buildHumanReportSummary({
       impactMap: artifacts.impactMap,
       mission: artifacts.mission,
       runResults,

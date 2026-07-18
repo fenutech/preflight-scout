@@ -1084,6 +1084,7 @@ async function renderAndPublishPdf(
     }
     await printHtmlReportToPdf({
       htmlContent: sourceBundle.reportHtml,
+      reportRoot: runDir,
       pdfPath: temporaryPdfPath
     });
     await publishAnalysisPdf({
