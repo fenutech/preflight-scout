@@ -141,7 +141,7 @@ export async function observe(page: Page, consoleErrors: string[], networkErrors
     count: MAX_INTERACTIVE_ELEMENTS,
     genericElementReserve: GENERIC_INTERACTIVE_RESERVE,
     valueLimit: MAX_INTERACTIVE_VALUE_CHARS
-  }).catch(() => []);
+  });
 
   return {
     url: redactText(page.url().slice(0, MAX_URL_CHARS)),

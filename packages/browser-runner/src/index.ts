@@ -124,6 +124,7 @@ export async function runBrowserMission(mission: QAFlowMission, options: Browser
   let loginSubmissionObserved = false;
   let initialSessionFingerprint: string | undefined;
   let finalResult: MissionRunResult | undefined;
+  let observationProblem: string | undefined;
   page.on("console", (message) => {
     if (message.type() === "error") {
       pushBounded(consoleErrors, redactText(message.text().slice(0, MAX_RUNTIME_ERROR_SOURCE_CHARS)).slice(0, 1000));
@@ -160,7 +161,15 @@ export async function runBrowserMission(mission: QAFlowMission, options: Browser
         return finalResult;
       }
       options.progress?.(`Mission ${mission.id}: observing browser turn ${turn}/${maxTurns}`);
-      const observation = await observe(page, consoleErrors, networkErrors);
+      let observation: BrowserObservation;
+      try {
+        observation = await observe(page, consoleErrors, networkErrors);
+      } catch {
+        observationProblem = "Browser observation failed closed because the current same-origin state could not be observed safely.";
+        results.push({ stepId: `turn-${turn}`, status: "blocked", message: observationProblem });
+        finalResult = { missionId: mission.id, status: "blocked", results, artifacts };
+        return finalResult;
+      }
       if (navigation.checkPage(page, `browser observation ${turn}`)) {
         results.push({ stepId: `turn-${turn}`, status: "blocked", message: navigation.violation!.message });
         finalResult = { missionId: mission.id, status: "blocked", results, artifacts };
@@ -309,8 +318,8 @@ export async function runBrowserMission(mission: QAFlowMission, options: Browser
     try {
       options.progress?.(`Writing browser evidence for mission ${mission.id}`);
     let finalObservation: BrowserObservation | undefined;
-    let finalizationProblem: string | undefined;
-    if (finalResult && !navigation.violation) {
+    let finalizationProblem = observationProblem;
+    if (finalResult && !navigation.violation && !observationProblem) {
       try {
         finalObservation = await observe(page, consoleErrors, networkErrors);
         if (navigation.checkPage(page, "final observation")) finalObservation = undefined;

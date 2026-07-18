@@ -152,6 +152,28 @@ class ObservationVisibilityLLM implements LLMClient {
   }
 }
 
+class InventoryFailureFinishPassLLM implements LLMClient {
+  calls = 0;
+
+  async completeJson<T>(_messages: LLMMessage[], options: StructuredJsonOptions<T>): Promise<T> {
+    if (options.schemaName !== "browser_decision") throw new Error(`Unexpected schema in inventory failure LLM: ${options.schemaName}`);
+    this.calls += 1;
+    if (this.calls === 1) {
+      return {
+        thought: "The reviewed text is visible.",
+        action: "assert",
+        missionStepId: "verify-inventory-page",
+        reason: "Verify the reviewed page text."
+      } as T;
+    }
+    return {
+      thought: "The reviewed assertion passed.",
+      action: "finish_pass",
+      reason: "The mission has enough evidence to pass."
+    } as T;
+  }
+}
+
 class ApprovalAwareLLM implements LLMClient {
   private turn = 0;
   lastPayload?: { approvedActions?: string[] };
@@ -369,6 +391,18 @@ describe("runBrowserMission", () => {
             Element.prototype.getBoundingClientRect = function () {
               if (this.dataset?.testid === 'bounds-throw') throw new Error('PAGE_BOUNDS_OVERRIDE');
               return getBoundingClientRect.call(this);
+            };
+          </script>
+        </body>`);
+        return;
+      }
+      if (req.url === "/observation-hostile-inventory-api") {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end(`<!doctype html><body>
+          <main>SAFE_INVENTORY_PAGE</main>
+          <script>
+            document.querySelectorAll = () => {
+              throw new Error('PAGE_INVENTORY_OVERRIDE');
             };
           </script>
         </body>`);
@@ -759,6 +793,41 @@ describe("runBrowserMission", () => {
     }));
     expect(JSON.stringify(llm.lastPayload?.currentObservation?.interactive)).not.toContain("style-throw");
     expect(JSON.stringify(llm.lastPayload?.currentObservation?.interactive)).not.toContain("bounds-throw");
+  });
+
+  it("fails closed when the page prevents interactive inventory collection", async () => {
+    const llm = new InventoryFailureFinishPassLLM();
+    const runOutputDir = path.join(outputDir, "observation-hostile-inventory-api");
+    const result = await runBrowserMission({
+      id: "observation-hostile-inventory-api",
+      title: "Contain page-owned inventory failures",
+      risk: "high",
+      startPath: "/observation-hostile-inventory-api",
+      reason: ["Inventory-wide observation failures must block evidence persistence."],
+      steps: [{
+        id: "verify-inventory-page",
+        instruction: "Verify the reviewed page text.",
+        action: "assert_text",
+        target: "css=body",
+        expected: "SAFE_INVENTORY_PAGE"
+      }]
+    }, {
+      baseUrl,
+      contract: basicContract(),
+      llm,
+      outputDir: runOutputDir,
+      headless: true,
+      maxTurns: 2
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(llm.calls).toBe(0);
+    expect(result.results.at(-1)).toMatchObject({ stepId: "browser-finalization", status: "blocked" });
+    expect(JSON.stringify(result)).not.toContain("PAGE_INVENTORY_OVERRIDE");
+    expect(result.artifacts).toEqual([]);
+    expect(result.evidence).toEqual({});
+    await expect(stat(path.join(runOutputDir, "trace.zip"))).rejects.toThrow();
+    await expect(stat(path.join(runOutputDir, "final-observation.json"))).rejects.toThrow();
   });
 
   it("reserves observation output for generic semantic markers", async () => {
