@@ -1,0 +1,8 @@
+# Synthetic PEM-boundary fixtures in packages/core/src/redaction.test.ts.
+# Each body is literal placeholder text, not encoded private-key material.
+22385f623dde2ba03d348b4f429ab7affe387e1c:packages/core/src/redaction.test.ts:private-key:40
+22385f623dde2ba03d348b4f429ab7affe387e1c:packages/core/src/redaction.test.ts:private-key:58
+22385f623dde2ba03d348b4f429ab7affe387e1c:packages/core/src/redaction.test.ts:private-key:71
+e4ec6ab869d9c5e63ed5a13e02cad83430350314:packages/core/src/redaction.test.ts:private-key:40
+e4ec6ab869d9c5e63ed5a13e02cad83430350314:packages/core/src/redaction.test.ts:private-key:58
+e4ec6ab869d9c5e63ed5a13e02cad83430350314:packages/core/src/redaction.test.ts:private-key:71
