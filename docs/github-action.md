@@ -95,6 +95,10 @@ secret exists.
 - `storage-state`: Playwright storage-state JSON to load for authenticated sessions.
 - `save-storage-state`: write storage state after browser execution.
 - `trace`: capture Playwright `trace.zip` for browser missions.
+- `output-dir`: artifact directory. By default the Action uses a job-scoped
+  directory under `RUNNER_TEMP`, outside the checkout. An explicit path inside
+  the checkout must be untracked and excluded by a directory rule in
+  `.gitignore`.
 - `comment`: post or update the PR comment.
 - `upload-artifact`: upload the report bundle.
 - `fail-on`: CI gate behavior:

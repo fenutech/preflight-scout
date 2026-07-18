@@ -50,9 +50,8 @@ inputs:
     required: false
     default: "true"
   output-dir:
-    description: Directory for report, JSON, HTML, screenshots, and run artifacts.
+    description: Directory for report, JSON, HTML, screenshots, and run artifacts. Defaults under RUNNER_TEMP.
     required: false
-    default: .preflight-scout/runs/github-action
   comment:
     description: Post or update a PR comment with the Markdown report.
     required: false

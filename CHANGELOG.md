@@ -63,6 +63,9 @@ All notable changes to Preflight Scout are documented here. This project follows
 - Required explicit repository-local CLI and GitHub Action artifact directories
   to be excluded by Git as directories, so contents-only ignore rules cannot
   re-include generated reports and invalidate the reviewed repository context.
+- Moved the GitHub Action's implicit artifact directory under `RUNNER_TEMP`, so
+  first-time Action users do not need a repository ignore rule unless they
+  explicitly place artifacts inside the checkout.
 - Bound `replay` to the reviewed analysis manifest instead of accepting a loose
   mission file.
 - Isolated internal QA contract defaults from mutations of the public

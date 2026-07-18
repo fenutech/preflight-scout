@@ -1,4 +1,5 @@
 import * as core from "@actions/core";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 export interface ActionInputs {
@@ -39,7 +40,7 @@ export function readInputs(): ActionInputs {
     appUrl: explicitActionInputValue("app-url"),
     target: inputValue("target"),
     targetEnv: inputValue("target-env") || "auto",
-    outputDir: path.resolve(inputValue("output-dir") || ".preflight-scout/runs/github-action"),
+    outputDir: path.resolve(inputValue("output-dir") || defaultActionOutputDirectory()),
     missionId: inputValue("mission-id"),
     allCandidates: booleanInput("all-candidates", false),
     missionLimit: parseOptionalPositiveInteger(inputValue("mission-limit"), "mission-limit"),
@@ -54,6 +55,11 @@ export function readInputs(): ActionInputs {
     detectDeploymentUrl: booleanInput("detect-deployment-url", true),
     failOn: inputValue("fail-on") || "needs_attention"
   };
+}
+
+function defaultActionOutputDirectory(): string {
+  const temporaryRoot = process.env.RUNNER_TEMP?.trim() || tmpdir();
+  return path.join(temporaryRoot, "preflight-scout", "github-action");
 }
 
 export function inputValue(name: string): string | undefined {
