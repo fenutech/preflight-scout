@@ -10,11 +10,11 @@ Confirm the currently supported installation paths in the root README and the
 npm registry. A package README may also be present in an unreleased source
 archive, so do not treat this file alone as proof that a registry release exists.
 
-After the official v0.1.5 release and the live npm registry
+After the official v0.1.6 release and the live npm registry
 both list this exact package version:
 
 ```bash
-npm install @preflight-scout/github-action@0.1.5 --registry=https://registry.npmjs.org/
+npm install @preflight-scout/github-action@0.1.6 --registry=https://registry.npmjs.org/
 ```
 
 ## License

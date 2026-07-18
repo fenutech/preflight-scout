@@ -6,6 +6,8 @@ All notable changes to Preflight Scout are documented here. This project follows
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-07-18
+
 ### Fixed
 
 - Kept generated browser missions aligned with the fail-closed runner by

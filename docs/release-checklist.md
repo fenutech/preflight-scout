@@ -104,7 +104,7 @@ Run from a clean checkout:
 ```bash
 corepack enable
 pnpm install --frozen-lockfile
-VERSION="0.1.5" # replace with the exact <version> being validated
+VERSION="0.1.6" # replace with the exact <version> being validated
 pnpm check:release-version -- "$VERSION"
 pnpm build
 pnpm check:site

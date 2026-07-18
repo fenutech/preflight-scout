@@ -19,7 +19,7 @@ description: "Review a pull request before release: map the diff, build a focuse
 
 ```bash
 preflight-scout --version
-preflight-scout update-check --skill-version 0.1.5
+preflight-scout update-check --skill-version 0.1.6
 preflight-scout init --dry-run --base <base>
 ```
 
