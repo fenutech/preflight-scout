@@ -75,6 +75,12 @@ try {
 
   const stamp = JSON.parse(await readFile(path.join(packageDir, "dist", ".preflight-scout-build.json"), "utf8"));
   if (stamp.builtAt) throw new Error("Build integrity stamp must remain deterministic.");
+  if (!/^sha256:[0-9a-f]{64}$/.test(stamp.sourceHash)) {
+    throw new Error("Build integrity stamp must contain a deterministic source hash.");
+  }
+  if (stamp.schemaVersion !== 3 || !/^sha256:[0-9a-f]{64}$/.test(stamp.packageRuntimeHash)) {
+    throw new Error("Build integrity stamp must bind the runtime package metadata.");
+  }
 
   console.log("Package build integrity guard rejects source, root manifest, lockfile, toolchain, and incomplete dist changes.");
 } finally {

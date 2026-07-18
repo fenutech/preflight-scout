@@ -1,6 +1,9 @@
 import type { ImpactMap, QAMission, QAContract } from "./types.js";
 import type { LLMClient, LLMMessage } from "./llm.js";
 import { QAMissionSchema } from "./schemas.js";
+import { appendRequiredUnknown, INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN } from "./impact-mapper.js";
+
+const MAX_MISSION_UNKNOWNS = 200;
 
 export async function createQAMission(input: {
   impactMap: ImpactMap;
@@ -11,10 +14,18 @@ export async function createQAMission(input: {
     throw new Error("Preflight Scout mission planning requires an LLM provider. Set PREFLIGHT_SCOUT_LLM_PROVIDER to openai/anthropic/gemini with an API key, or codex-exec/claude-exec/gemini-exec for a local agent CLI.");
   }
 
-  return input.llm.completeJson<QAMission>(missionPrompt(input.impactMap, input.contract), {
+  const mission = await input.llm.completeJson<QAMission>(missionPrompt(input.impactMap, input.contract), {
     schema: QAMissionSchema,
     schemaName: "qa_mission"
   });
+  if (input.impactMap.unknowns.includes(INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN)) {
+    mission.unknowns = appendRequiredUnknown(
+      mission.unknowns,
+      INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN,
+      MAX_MISSION_UNKNOWNS
+    );
+  }
+  return QAMissionSchema.parse(mission);
 }
 
 function missionPrompt(impactMap: ImpactMap, contract: QAContract): LLMMessage[] {

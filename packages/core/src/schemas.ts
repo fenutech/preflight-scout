@@ -205,6 +205,50 @@ export const MissionRunResultSchema = z.object({
   }).strict().optional()
 }).strict();
 
+const Sha256DigestSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/, "expected a SHA-256 digest");
+const GitCommitSchema = z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/, "expected an exact Git commit object");
+
+export const AnalysisManifestSchema = z.object({
+  kind: z.literal("preflight-scout-analysis"),
+  schemaVersion: z.literal(2),
+  createdAt: z.iso.datetime({ offset: true }),
+  toolVersion: z.string().regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/, "expected an exact semantic version"),
+  analysisRuntime: z.object({
+    entrypoint: z.enum(["core-api", "cli", "github-action"]),
+    digest: Sha256DigestSchema,
+    coreDigest: Sha256DigestSchema
+  }).strict(),
+  schemaDigest: Sha256DigestSchema,
+  repositoryDigest: Sha256DigestSchema,
+  repositoryContextDigest: Sha256DigestSchema,
+  baseCommit: GitCommitSchema,
+  headCommit: GitCommitSchema,
+  contractDigest: Sha256DigestSchema,
+  artifacts: z.object({
+    impactMapSha256: Sha256DigestSchema,
+    missionSha256: Sha256DigestSchema,
+    reportMarkdownSha256: Sha256DigestSchema,
+    reportHtmlSha256: Sha256DigestSchema,
+    reportSummarySha256: Sha256DigestSchema,
+    reportPdfSha256: Sha256DigestSchema.optional(),
+    currentResults: z.object({
+      path: z.enum(["run-result.json", "run-results.json"]),
+      sha256: Sha256DigestSchema,
+      executionRuntime: z.object({
+        entrypoint: z.enum(["cli-browser", "github-action-browser"]),
+        digest: Sha256DigestSchema
+      }).strict(),
+      evidence: z.array(z.object({
+        path: z.string()
+          .min(1)
+          .max(4_096)
+          .refine((value) => !value.startsWith("/") && !value.includes("\\") && !value.split("/").some((segment) => !segment || segment === "." || segment === ".."), "expected a safe run-relative evidence path"),
+        sha256: Sha256DigestSchema
+      }).strict()).max(5_000)
+    }).strict().optional()
+  }).strict()
+}).strict();
+
 export const BrowserDecisionSchema = z.object({
   thought: z.string().min(1).max(2_000),
   action: z.enum(["goto", "click", "fill", "press", "assert", "screenshot", "wait", "scroll", "set_viewport", "finish_pass", "finish_fail", "blocked"]),

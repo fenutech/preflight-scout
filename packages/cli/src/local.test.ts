@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -226,21 +226,239 @@ describe("loadEnvFile", () => {
       dir,
       undefined,
       ".preflight-scout/runs/configured-analysis"
-    )).resolves.toBe(path.join(dir, ".preflight-scout", "runs", "configured-analysis"));
+    )).resolves.toEqual({
+      directory: path.join(dir, ".preflight-scout", "runs", "configured-analysis"),
+      boundary: dir
+    });
 
     await expect(resolveAnalysisOutputDir(
       dir,
       ".preflight-scout/runs/explicit-analysis",
       ".preflight-scout/runs/configured-analysis"
-    )).resolves.toBe(path.join(dir, ".preflight-scout", "runs", "explicit-analysis"));
+    )).resolves.toEqual({
+      directory: path.join(dir, ".preflight-scout", "runs", "explicit-analysis"),
+      boundary: dir
+    });
+  });
+
+  it("rejects an explicit in-repository output directory that Git does not ignore", async () => {
+    await expect(resolveAnalysisOutputDir(
+      dir,
+      "preflight-output",
+      undefined
+    )).rejects.toThrow("must be untracked and ignored by Git");
+  });
+
+  it("accepts an explicit in-repository output directory only after Git excludes it", async () => {
+    await writeFile(path.join(dir, ".gitignore"), "preflight-output/\n");
+
+    await expect(resolveAnalysisOutputDir(
+      dir,
+      "preflight-output",
+      undefined
+    )).resolves.toEqual({
+      directory: path.join(dir, "preflight-output"),
+      boundary: dir
+    });
+    await expect(lstat(path.join(dir, "preflight-output"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("conservatively rejects a non-directory Git pattern for a missing output", async () => {
+    await writeFile(path.join(dir, ".gitignore"), "preflight-*\n");
+
+    await expect(resolveAnalysisOutputDir(
+      dir,
+      "preflight-output",
+      undefined
+    )).rejects.toThrow("must be untracked and ignored by Git");
+    await expect(lstat(path.join(dir, "preflight-output"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("accepts a non-ASCII directory exclusion without materializing the output", async () => {
+    await writeFile(path.join(dir, ".gitignore"), "preflight-ü/\n");
+
+    await expect(resolveAnalysisOutputDir(
+      dir,
+      "preflight-ü",
+      undefined
+    )).resolves.toEqual({
+      directory: path.join(dir, "preflight-ü"),
+      boundary: dir
+    });
+    await expect(lstat(path.join(dir, "preflight-ü"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("accepts a directory exclusion even when a later child negation cannot take effect", async () => {
+    await writeFile(
+      path.join(dir, ".gitignore"),
+      "preflight-output/\n!preflight-output/report.md\n"
+    );
+
+    await expect(resolveAnalysisOutputDir(
+      dir,
+      "preflight-output",
+      undefined
+    )).resolves.toEqual({
+      directory: path.join(dir, "preflight-output"),
+      boundary: dir
+    });
+    await expect(execFileAsync(
+      "git",
+      ["check-ignore", "--quiet", "--", "preflight-output/report.md"],
+      { cwd: dir }
+    )).resolves.toBeDefined();
+  });
+
+  it("rejects an explicit output when Git ignores only its contents and re-includes a generated report", async () => {
+    await writeFile(
+      path.join(dir, ".gitignore"),
+      "preflight-output/*\n!preflight-output/report.md\n"
+    );
+
+    await expect(resolveAnalysisOutputDir(
+      dir,
+      "preflight-output",
+      undefined
+    )).rejects.toThrow("must be untracked and ignored by Git");
+    await expect(lstat(path.join(dir, "preflight-output"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("rejects a missing output whose directory negation would activate after materialization", async () => {
+    await writeFile(
+      path.join(dir, ".gitignore"),
+      "*\n!.gitignore\n!preflight-output/\n!preflight-output/report.md\n"
+    );
+
+    await expect(resolveAnalysisOutputDir(
+      dir,
+      "preflight-output",
+      undefined
+    )).rejects.toThrow("must be untracked and ignored by Git");
+    await expect(lstat(path.join(dir, "preflight-output"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("rejects an explicit in-repository output directory containing tracked files", async () => {
+    await mkdir(path.join(dir, "preflight-output"));
+    await writeFile(path.join(dir, "preflight-output", "tracked.txt"), "tracked\n");
+    await execFileAsync("git", ["add", "preflight-output/tracked.txt"], { cwd: dir });
+
+    await expect(resolveAnalysisOutputDir(
+      dir,
+      "preflight-output",
+      undefined
+    )).rejects.toThrow("must be untracked and ignored by Git");
+  });
+
+  it.skipIf(process.platform === "win32")("rejects a symlinked explicit in-repository output directory", async () => {
+    const external = await mkdtemp(path.join(tmpdir(), "preflight-scout-explicit-output-external-"));
+    try {
+      await writeFile(path.join(dir, ".gitignore"), "preflight-output/\n");
+      await symlink(external, path.join(dir, "preflight-output"));
+
+      await expect(resolveAnalysisOutputDir(
+        dir,
+        "preflight-output",
+        undefined
+      )).rejects.toThrow("unsafe symbolic-link or non-directory path");
+    } finally {
+      await rm(external, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === "win32")("rejects a lexical external alias that canonicalizes to the repository root", async () => {
+    const aliasParent = await mkdtemp(path.join(tmpdir(), "preflight-scout-output-alias-"));
+    try {
+      const alias = path.join(aliasParent, "repo-link");
+      await symlink(dir, alias, "dir");
+
+      await expect(resolveAnalysisOutputDir(
+        dir,
+        alias,
+        undefined
+      )).rejects.toThrow("repository root cannot be used as an artifact directory");
+    } finally {
+      await rm(aliasParent, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === "win32")("accepts a lexical external alias only when its canonical repository child is ignored", async () => {
+    const output = path.join(dir, "preflight-output");
+    const aliasParent = await mkdtemp(path.join(tmpdir(), "preflight-scout-output-alias-"));
+    try {
+      await mkdir(output);
+      await writeFile(path.join(dir, ".gitignore"), "preflight-output/\n");
+      const alias = path.join(aliasParent, "output-link");
+      await symlink(output, alias, "dir");
+
+      await expect(resolveAnalysisOutputDir(
+        dir,
+        alias,
+        undefined
+      )).resolves.toEqual({ directory: output, boundary: dir });
+    } finally {
+      await rm(aliasParent, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === "win32")("rejects a lexical external alias when its canonical repository child can re-include generated files", async () => {
+    const output = path.join(dir, "preflight-output");
+    const aliasParent = await mkdtemp(path.join(tmpdir(), "preflight-scout-output-alias-"));
+    try {
+      await mkdir(output);
+      await writeFile(
+        path.join(dir, ".gitignore"),
+        "preflight-output/*\n!preflight-output/report.md\n"
+      );
+      const alias = path.join(aliasParent, "output-link");
+      await symlink(output, alias, "dir");
+
+      await expect(resolveAnalysisOutputDir(
+        dir,
+        alias,
+        undefined
+      )).rejects.toThrow("must be untracked and ignored by Git");
+    } finally {
+      await rm(aliasParent, { recursive: true, force: true });
+    }
   });
 
   it("falls back to the standard analysis run directory when no output is configured", async () => {
     await writeFile(path.join(dir, ".gitignore"), ".preflight-scout/runs/\n");
 
-    await expect(resolveAnalysisOutputDir(dir, undefined, undefined)).resolves.toBe(
-      path.join(dir, ".preflight-scout", "runs", "latest")
-    );
+    await expect(resolveAnalysisOutputDir(dir, undefined, undefined)).resolves.toEqual({
+      directory: path.join(dir, ".preflight-scout", "runs", "latest"),
+      boundary: dir
+    });
+  });
+
+  it("derives a separate trusted boundary for an explicit external output", async () => {
+    const external = await mkdtemp(path.join(tmpdir(), "preflight-scout-explicit-output-"));
+    try {
+      const canonicalExternal = await realpath(external);
+      await expect(resolveAnalysisOutputDir(
+        dir,
+        path.join(external, "nested", "run"),
+        undefined
+      )).resolves.toEqual({
+        directory: path.join(canonicalExternal, "nested", "run"),
+        boundary: canonicalExternal
+      });
+    } finally {
+      await rm(external, { recursive: true, force: true });
+    }
+  });
+
+  it("normalizes the standard macOS /tmp alias for a new explicit output", async () => {
+    const alias = "/tmp";
+    const aliasStats = await lstat(alias);
+    if (!aliasStats.isSymbolicLink()) return;
+    const canonicalTmp = await realpath(alias);
+    const leaf = `preflight-scout-output-${process.pid}-${Date.now()}`;
+
+    await expect(resolveAnalysisOutputDir(dir, path.join(alias, leaf), undefined)).resolves.toEqual({
+      directory: path.join(canonicalTmp, leaf),
+      boundary: canonicalTmp
+    });
   });
 
   it("rejects contract output traversal outside .preflight-scout/runs", async () => {

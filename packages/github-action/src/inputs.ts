@@ -1,4 +1,5 @@
 import * as core from "@actions/core";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 export interface ActionInputs {
@@ -36,10 +37,10 @@ export function readInputs(): ActionInputs {
   return {
     token,
     mode,
-    appUrl: inputValue("app-url"),
+    appUrl: explicitActionInputValue("app-url"),
     target: inputValue("target"),
     targetEnv: inputValue("target-env") || "auto",
-    outputDir: path.resolve(inputValue("output-dir") || ".preflight-scout/runs/github-action"),
+    outputDir: path.resolve(inputValue("output-dir") || defaultActionOutputDirectory()),
     missionId: inputValue("mission-id"),
     allCandidates: booleanInput("all-candidates", false),
     missionLimit: parseOptionalPositiveInteger(inputValue("mission-limit"), "mission-limit"),
@@ -56,10 +57,22 @@ export function readInputs(): ActionInputs {
   };
 }
 
+function defaultActionOutputDirectory(): string {
+  const temporaryRoot = process.env.RUNNER_TEMP?.trim() || tmpdir();
+  return path.join(temporaryRoot, "preflight-scout", "github-action");
+}
+
 export function inputValue(name: string): string | undefined {
   const value = core.getInput(name);
   if (value) return value;
   return process.env[`PREFLIGHT_SCOUT_${name.toUpperCase().replace(/-/g, "_")}`] || undefined;
+}
+
+function explicitActionInputValue(name: string): string | undefined {
+  const value = core.getInput(name);
+  if (value) return value;
+  const label = name.toUpperCase().replace(/-/g, "_");
+  return process.env[`PREFLIGHT_SCOUT_ACTION_${label}_INPUT`] || undefined;
 }
 
 function optionalPathInput(name: string): string | undefined {

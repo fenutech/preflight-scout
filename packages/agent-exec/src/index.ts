@@ -3,6 +3,7 @@ import { constants as fsConstants } from "node:fs";
 import { access, mkdtemp, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
+import * as processTree from "@preflight-scout/core";
 import {
   browserCredentialKindForEnvName,
   redactText,
@@ -665,6 +666,10 @@ function runCommand(options: AgentCommandRunOptions & { env: NodeJS.ProcessEnv }
     let capturedChars = 0;
     let settled = false;
     let terminationReason: "timeout" | "output-limit" | undefined;
+    let terminationDiagnostic: string | undefined;
+    let terminationProcessErrorCode: string | undefined;
+    let terminationExitCode: number | null | undefined;
+    let initialTerminationComplete = false;
     let forceKillTimer: NodeJS.Timeout | undefined;
     let finalTimeoutTimer: NodeJS.Timeout | undefined;
     const startedAt = Date.now();
@@ -679,7 +684,7 @@ function runCommand(options: AgentCommandRunOptions & { env: NodeJS.ProcessEnv }
         detached: process.platform !== "win32"
       }) as ChildProcessWithoutNullStreams;
     } catch (error) {
-      const errorCode = (error as NodeJS.ErrnoException).code ?? (error as Error).name ?? "unknown error";
+      const errorCode = safeSubprocessErrorCode(error);
       reject(new AgentExecError(
         `${options.kind} agent command failed to start (${redactAgentText(errorCode, childEnvSecrets)})`,
         {
@@ -716,6 +721,11 @@ function runCommand(options: AgentCommandRunOptions & { env: NodeJS.ProcessEnv }
     child.stdin.end();
     child.on("error", (error) => {
       if (settled) return;
+      const errorCode = safeSubprocessErrorCode(error);
+      if (terminationReason) {
+        terminationProcessErrorCode = errorCode;
+        return;
+      }
       settled = true;
       flushAgentOutput();
       clearTimeout(timer);
@@ -723,7 +733,6 @@ function runCommand(options: AgentCommandRunOptions & { env: NodeJS.ProcessEnv }
       if (forceKillTimer) clearTimeout(forceKillTimer);
       if (finalTimeoutTimer) clearTimeout(finalTimeoutTimer);
       const result = buildRawResult(null);
-      const errorCode = (error as NodeJS.ErrnoException).code ?? error.name;
       reject(new AgentExecError(
         appendCapturedDiagnostics(
           `${options.kind} agent command failed to start (${redactAgentText(errorCode, childEnvSecrets)})`,
@@ -739,7 +748,8 @@ function runCommand(options: AgentCommandRunOptions & { env: NodeJS.ProcessEnv }
     child.on("close", (exitCode) => {
       if (settled) return;
       if (terminationReason) {
-        settleTermination(exitCode);
+        terminationExitCode = exitCode;
+        if (initialTerminationComplete) settleTermination(exitCode);
         return;
       }
       settled = true;
@@ -806,16 +816,43 @@ function runCommand(options: AgentCommandRunOptions & { env: NodeJS.ProcessEnv }
       } else {
         progress(`${options.kind} agent command exceeded its ${AGENT_OUTPUT_LIMIT_CHARS}-character output limit; terminating it`);
       }
-      terminateAgentProcess(child, "SIGTERM");
-      forceKillTimer = setTimeout(() => {
+      void requestTermination("SIGTERM").then(() => {
         if (settled) return;
-        progress(`${options.kind} agent command did not exit after SIGTERM; sending SIGKILL`);
-        terminateAgentProcess(child, "SIGKILL");
-        finalTimeoutTimer = setTimeout(() => {
-          if (settled) return;
+        initialTerminationComplete = true;
+        if (terminationExitCode !== undefined) {
+          settleTermination(terminationExitCode);
+          return;
+        }
+        if (process.platform === "win32") {
           settleTermination(null);
+          return;
+        }
+        forceKillTimer = setTimeout(() => {
+          if (settled) return;
+          progress(`${options.kind} agent command did not exit after SIGTERM; sending SIGKILL`);
+          void requestTermination("SIGKILL").then(() => {
+            if (settled) return;
+            if (terminationExitCode !== undefined) {
+              settleTermination(terminationExitCode);
+              return;
+            }
+            finalTimeoutTimer = setTimeout(() => {
+              if (!settled) settleTermination(null);
+            }, 1000);
+          });
         }, 1000);
-      }, 1000);
+      });
+    }
+
+    async function requestTermination(signal: NodeJS.Signals): Promise<void> {
+      const result = await processTree.terminateProcessTree(child, signal).catch(() => ({
+        confirmed: false,
+        diagnostic: "Process-tree termination failed without exposing subprocess diagnostics."
+      }));
+      if (result.diagnostic) {
+        terminationDiagnostic = redactAgentText(result.diagnostic, childEnvSecrets);
+        progress(terminationDiagnostic);
+      }
     }
 
     function buildRawResult(exitCode: number | null): AgentExecResult {
@@ -851,7 +888,7 @@ function runCommand(options: AgentCommandRunOptions & { env: NodeJS.ProcessEnv }
       progress(`${options.kind} agent command ${reason} after ${elapsed}s; captured ${stdout.length} stdout and ${stderr.length} stderr characters`);
       reject(new AgentExecError(
         appendCapturedDiagnostics(
-          `${options.kind} agent command ${reason}: ${commandDisplay}`,
+          `${options.kind} agent command ${reason}${terminationDiagnostic ? `; ${terminationDiagnostic}` : ""}${terminationProcessErrorCode ? `; subprocess emitted ${terminationProcessErrorCode} during cleanup` : ""}: ${commandDisplay}`,
           stdout,
           stderr,
           childEnvSecrets,
@@ -862,18 +899,6 @@ function runCommand(options: AgentCommandRunOptions & { env: NodeJS.ProcessEnv }
       ));
     }
   });
-}
-
-function terminateAgentProcess(child: ReturnType<typeof spawn>, signal: NodeJS.Signals): void {
-  if (process.platform !== "win32" && child.pid) {
-    try {
-      process.kill(-child.pid, signal);
-      return;
-    } catch {
-      // Fall back to the direct child when the process group is already gone.
-    }
-  }
-  child.kill(signal);
 }
 
 function appendCapturedDiagnostics(
@@ -895,6 +920,15 @@ function formatCapturedOutput(output: string, secretValues: Iterable<string> = [
   if (redacted.length <= limit) return redacted;
   const half = Math.floor(limit / 2);
   return `${redacted.slice(0, half)}\n...[truncated ${redacted.length - limit} characters]...\n${redacted.slice(-half)}`;
+}
+
+function safeSubprocessErrorCode(error: unknown): string {
+  const value = typeof error === "object" && error !== null && "code" in error && error.code
+    ? String(error.code)
+    : error instanceof Error
+      ? error.name
+      : "unknown error";
+  return /^[A-Za-z0-9_]+$/.test(value) ? value : "unknown error";
 }
 
 function sanitizeSuccessResult(

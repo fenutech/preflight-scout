@@ -25,10 +25,11 @@ See the [illustrative sample report](examples/sample-report/report.md), its
 - a Markdown, HTML, JSON, and optional PDF release report
 - optional promotion of a useful mission into a reviewed Playwright regression test
 
-Preflight Scout uses an LLM to map the diff and a limited repository index to
-affected product areas. Deterministic code handles secrets, browser limits,
-evidence, and report output. Without an LLM provider, it can run diagnostics and
-work with existing artifacts, but it cannot create the impact map.
+Preflight Scout uses an LLM to map the diff plus a bounded repository inventory
+of Git-visible paths, selected root project files, and package-manager evidence
+to affected product areas. Deterministic code handles secrets, browser limits,
+evidence, and report output. Without an LLM provider, it can run diagnostics
+and work with existing artifacts, but it cannot create the impact map.
 
 ## Install it for your agent
 
@@ -387,6 +388,8 @@ preflight-scout promote \
 
 Analysis and execution write durable artifacts under `.preflight-scout/runs/latest/`:
 
+- `analysis-manifest.json`, which binds the reviewed inputs and declares the
+  current artifact and evidence digests
 - `impact-map.json`
 - `mission.json`
 - `report.md`, `report.html`, `report-summary.json`, and optional `report.pdf`
@@ -395,6 +398,41 @@ Analysis and execution write durable artifacts under `.preflight-scout/runs/late
 - `trace.zip`, `console-errors.json`, and `network-errors.json`
 
 Reports separate executed evidence from planned checks, failures, blockers, and unknowns. A blocked mission is not reported as a pass.
+
+`run --analysis-dir` and `agent-run --analysis-dir` accept only an analysis for
+the same repository, indexed context, exact base and head commits, contract,
+schema, Preflight Scout version, and exact Preflight Scout package-code/build
+identity for the analysis entrypoint. A packaged CLI verifies its own package
+metadata and declared outputs together with the core package; browser results
+also record the exact Preflight Scout CLI/browser-runner package-code/build
+identity that produced them. These identities do not attest third-party
+dependencies, Node.js, the operating system, or the browser build. `replay --mission`
+applies the same checks to the mission's analysis directory before opening a
+browser. A legacy directory without a manifest, a bundle copied from a
+different repository, or a modified artifact fails closed. Run
+`preflight-scout analyze` again, review the new files, and retry; there is no
+in-place upgrade for an old analysis directory.
+
+The manifest also binds `report.md`, `report.html`, `report-summary.json`, and
+an optional `report.pdf`. PDF publication updates the manifest last while the
+generation lock is held. The GitHub Action copies only manifest-declared bytes
+into a private staging directory after re-hashing them, then uploads that
+staged copy rather than mutable checkout files.
+
+Artifact generations in one output directory are serialized. If a process
+exits without removing `.analysis-generation.lock`, first confirm no writer is
+active, then remove only that lock file and retry.
+
+Browser evidence is written into a unique generation directory before
+publication. Result JSON stores portable paths relative to the run directory,
+not absolute checkout paths. Rebuilding a report revalidates the complete
+declared bundle under the generation lock. Optional PDF output is rendered to a
+unique temporary path and published only if that same bundle is still current.
+An explicit `--output-dir` or
+artifact input outside the repository remains supported through its own
+canonical trusted boundary; contract-derived output stays confined beneath
+`.preflight-scout/runs/`. A repository-local explicit output must be excluded
+as a directory by Git; ignoring only its current contents is not sufficient.
 
 ## GitHub Action
 

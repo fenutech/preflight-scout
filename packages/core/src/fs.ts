@@ -4,6 +4,7 @@ import { promises as fs } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { createTrustedGit, type TrustedGit } from "./trusted-git.js";
+import type { KnownRepoFileInventoryCoverage } from "./types.js";
 
 const DEFAULT_IGNORED_SEGMENTS = new Set([
   ".git",
@@ -69,13 +70,41 @@ export async function pathExists(filePath: string): Promise<boolean> {
 }
 
 export async function walkFiles(root: string, options: { maxFiles?: number } = {}): Promise<string[]> {
+  const result = await walkFilesWithCoverage(root, options);
+  if (!result.coverage.complete) {
+    throw new Error(`Repository inventory exceeds the ${result.coverage.maxFiles}-file limit. Use walkFilesWithCoverage() to handle incomplete inventory explicitly.`);
+  }
+  return result.files;
+}
+
+export interface WalkFilesResult {
+  files: string[];
+  coverage: KnownRepoFileInventoryCoverage;
+}
+
+export async function walkFilesWithCoverage(root: string, options: { maxFiles?: number } = {}): Promise<WalkFilesResult> {
   const maxFiles = options.maxFiles ?? 5000;
-  if (maxFiles <= 0) return [];
+  if (!Number.isSafeInteger(maxFiles) || maxFiles < 0) {
+    throw new Error("maxFiles must be a non-negative safe integer");
+  }
 
   const git = await trustedGitForWorkTree(root);
-  if (git) return walkGitVisibleFiles(root, maxFiles, git);
+  const result = git
+    ? await walkGitVisibleFiles(root, maxFiles, git)
+    : await walkFileSystem(root, maxFiles);
 
-  return walkFileSystem(root, maxFiles);
+  return {
+    files: result.files,
+    coverage: {
+      state: "known",
+      maxFiles,
+      includedFiles: result.files.length,
+      complete: !result.truncated,
+      ...(result.truncated ? {
+        note: `Repository inventory reached the ${maxFiles}-file limit; additional safe files were omitted.`
+      } : {})
+    }
+  };
 }
 
 /**
@@ -141,7 +170,12 @@ function isMissingPathError(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
 }
 
-async function walkGitVisibleFiles(root: string, maxFiles: number, git: TrustedGit): Promise<string[]> {
+interface BoundedFileWalk {
+  files: string[];
+  truncated: boolean;
+}
+
+async function walkGitVisibleFiles(root: string, maxFiles: number, git: TrustedGit): Promise<BoundedFileWalk> {
   const [tracked, untracked] = await Promise.all([
     listGitFiles(root, ["--cached"], git),
     listGitFiles(root, ["--others", "--exclude-standard"], git)
@@ -151,18 +185,23 @@ async function walkGitVisibleFiles(root: string, maxFiles: number, git: TrustedG
     ...untracked.sort()
   ].filter(isSafeIndexedPath);
   const output: string[] = [];
+  let truncated = false;
 
   for (const relative of new Set(candidates)) {
-    if (output.length >= maxFiles) break;
     try {
       const stat = await fs.lstat(path.join(root, relative));
-      if (isSafeRegularFile(stat)) output.push(relative);
+      if (!isSafeRegularFile(stat)) continue;
+      if (output.length >= maxFiles) {
+        truncated = true;
+        break;
+      }
+      output.push(relative);
     } catch {
       // A tracked path may have been deleted from the worktree between Git listing and indexing.
     }
   }
 
-  return output.sort();
+  return { files: output.sort(), truncated };
 }
 
 async function listGitFiles(root: string, selection: string[], git: TrustedGit): Promise<string[]> {
@@ -176,15 +215,16 @@ async function listGitFiles(root: string, selection: string[], git: TrustedGit):
   return stdout.split("\0").filter(Boolean);
 }
 
-async function walkFileSystem(root: string, maxFiles: number): Promise<string[]> {
+async function walkFileSystem(root: string, maxFiles: number): Promise<BoundedFileWalk> {
   const output: string[] = [];
+  let truncated = false;
 
   async function visit(current: string): Promise<void> {
-    if (output.length >= maxFiles) return;
+    if (truncated) return;
     const entries = await fs.readdir(current, { withFileTypes: true });
     entries.sort((left, right) => left.name.localeCompare(right.name));
     for (const entry of entries) {
-      if (output.length >= maxFiles) break;
+      if (truncated) break;
       const absolute = path.join(current, entry.name);
       const relative = path.relative(root, absolute);
       if (!isSafeIndexedPath(relative)) continue;
@@ -194,7 +234,12 @@ async function walkFileSystem(root: string, maxFiles: number): Promise<string[]>
       } else if (entry.isFile()) {
         try {
           const stats = await fs.lstat(absolute);
-          if (isSafeRegularFile(stats)) output.push(relative);
+          if (!isSafeRegularFile(stats)) continue;
+          if (output.length >= maxFiles) {
+            truncated = true;
+            break;
+          }
+          output.push(relative);
         } catch {
           // The entry may have changed after readdir; omit it rather than
           // following a replacement into LLM-facing repository context.
@@ -204,7 +249,7 @@ async function walkFileSystem(root: string, maxFiles: number): Promise<string[]>
   }
 
   await visit(root);
-  return output.sort();
+  return { files: output.sort(), truncated };
 }
 
 export interface BoundaryPathOptions {
@@ -356,6 +401,10 @@ export async function assertPathHasNoSymlinks(
   }
 }
 
+export async function ensureSafeDirectoryForWrite(boundary: string, directory: string): Promise<void> {
+  await ensureSafeDirectoryPath(path.resolve(boundary), path.resolve(directory));
+}
+
 async function nearestExistingDirectory(candidate: string): Promise<string> {
   let cursor = path.resolve(candidate);
   for (;;) {
@@ -411,7 +460,11 @@ async function ensureSafeDirectoryPath(boundary: string, directory: string): Pro
       }
     } catch (error) {
       if (!isMissingPathError(error)) throw error;
-      await fs.mkdir(cursor, { mode: 0o700 });
+      try {
+        await fs.mkdir(cursor, { mode: 0o700 });
+      } catch (mkdirError) {
+        if ((mkdirError as NodeJS.ErrnoException).code !== "EEXIST") throw mkdirError;
+      }
       const stats = await fs.lstat(cursor);
       if (stats.isSymbolicLink() || !stats.isDirectory()) {
         throw new Error(`Refusing write through unsafe directory ${cursor}`);

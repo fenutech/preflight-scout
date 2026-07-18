@@ -2,7 +2,8 @@ import { inspect } from "node:util";
 import { access, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as processTree from "@preflight-scout/core";
 import {
   AGENT_OUTPUT_LIMIT_CHARS,
   AgentExecError,
@@ -14,6 +15,23 @@ import {
   runAgentCapabilityProbe,
   runAgentExecution
 } from "./index.js";
+
+const PROCESS_TREE_FIXTURE_SOURCE = `
+const { spawn } = require("node:child_process");
+spawn(process.execPath, [
+  "-e",
+  "const { writeFileSync } = require('node:fs'); setTimeout(() => writeFileSync(process.argv[1], 'alive'), Number(process.argv[2]));",
+  process.argv[1],
+  process.argv[2]
+], { stdio: "ignore" });
+const outputChars = Number(process.argv[3]);
+if (outputChars > 0) process.stdout.write("x".repeat(outputChars));
+setInterval(() => {}, 1000);
+`;
+
+function processTreeFixtureArgs(marker: string, delayMs: number, outputChars = 0): string[] {
+  return ["-e", PROCESS_TREE_FIXTURE_SOURCE, marker, String(delayMs), String(outputChars)];
+}
 
 const contract = {
   app: { name: "Example" },
@@ -168,6 +186,9 @@ describe("resolveAgentCommand", () => {
   });
 
   it("propagates configured model and reasoning flags to built-in agents", () => {
+    const codexEffortSetting = (effort: string) => process.platform === "win32"
+      ? `model_reasoning_effort='${effort}'`
+      : `model_reasoning_effort="${effort}"`;
     const previousModel = process.env.PREFLIGHT_SCOUT_EXEC_MODEL;
     const previousEffort = process.env.PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT;
     process.env.PREFLIGHT_SCOUT_EXEC_MODEL = "test-model";
@@ -194,10 +215,10 @@ describe("resolveAgentCommand", () => {
         toolDenyPolicyPath: "/tmp/preflight-scout-deny-tools.toml"
       }, "probe prompt");
 
-      expect(codex.args).toEqual(expect.arrayContaining(["-m", "test-model", "-c", "model_reasoning_effort=\"high\""]));
+      expect(codex.args).toEqual(expect.arrayContaining(["-m", "test-model", "-c", codexEffortSetting("high")]));
       expect(claude.args).toEqual(expect.arrayContaining(["--model", "test-model", "--effort", "high"]));
-      expect(boundedProbe.args).toEqual(expect.arrayContaining(["-c", "model_reasoning_effort=\"low\""]));
-      expect(boundedProbe.args).not.toContain("model_reasoning_effort=\"high\"");
+      expect(boundedProbe.args).toEqual(expect.arrayContaining(["-c", codexEffortSetting("low")]));
+      expect(boundedProbe.args).not.toContain(codexEffortSetting("high"));
       expect(boundedProbe.args).toEqual(expect.arrayContaining(["--ignore-user-config", "--ignore-rules", "--disable", "plugins", "--sandbox", "read-only"]));
       expect(boundedProbe.args).not.toContain("workspace-write");
       expect(boundedProbe.args).not.toContain("sandbox_policy.network_access=enabled");
@@ -463,34 +484,40 @@ describe("runAgentExecution", () => {
     expect(result.stdout).not.toContain("x");
   });
 
-  it("terminates agents whose combined output exceeds the capture bound", async () => {
+  it("terminates the delegated process tree when combined output exceeds the capture bound", async () => {
+    const temp = await mkdtemp(path.join(tmpdir(), "preflight-scout-agent-output-tree-"));
+    const marker = path.join(temp, "grandchild-survived");
     let thrown: unknown;
     try {
-      await runAgentExecution({
-        kind: "custom",
-        appUrl: "https://preview.example.com",
-        contract,
-        mission,
-        command: process.execPath,
-        args: ["-e", `process.stdout.write("x".repeat(${AGENT_OUTPUT_LIMIT_CHARS + 10_000})); setInterval(() => {}, 1000)`],
-        timeoutMs: 5000
-      });
-    } catch (error) {
-      thrown = error;
-    }
+      try {
+        await runAgentExecution({
+          kind: "custom",
+          appUrl: "https://preview.example.com",
+          contract,
+          mission,
+          command: process.execPath,
+          args: processTreeFixtureArgs(marker, 1200, AGENT_OUTPUT_LIMIT_CHARS + 10_000),
+          timeoutMs: 5000
+        });
+      } catch (error) {
+        thrown = error;
+      }
 
-    expect(thrown).toBeInstanceOf(AgentExecError);
-    const error = thrown as AgentExecError;
-    expect(error.timedOut).toBe(false);
-    expect(error.message).toContain("output limit");
-    expect(error.result.stdout.length).toBeLessThan(2200);
+      expect(thrown).toBeInstanceOf(AgentExecError);
+      const error = thrown as AgentExecError;
+      expect(error.timedOut).toBe(false);
+      expect(error.message).toContain("output limit");
+      expect(error.result.stdout.length).toBeLessThan(2200);
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await expect(access(marker)).rejects.toThrow();
+    } finally {
+      await rm(temp, { recursive: true, force: true });
+    }
   });
 
-  it.skipIf(process.platform === "win32")("terminates the delegated process group on timeout", async () => {
+  it("terminates the delegated process tree on timeout", async () => {
     const temp = await mkdtemp(path.join(tmpdir(), "preflight-scout-agent-group-"));
     const marker = path.join(temp, "grandchild-survived");
-    const grandchildScript = `const fs = require("node:fs"); setTimeout(() => fs.writeFileSync(${JSON.stringify(marker)}, "alive"), 800)`;
-    const parentScript = `require("node:child_process").spawn(process.execPath, ["-e", ${JSON.stringify(grandchildScript)}], { stdio: "ignore" }); setInterval(() => {}, 1000)`;
 
     try {
       await expect(runAgentExecution({
@@ -499,7 +526,7 @@ describe("runAgentExecution", () => {
         contract,
         mission,
         command: process.execPath,
-        args: ["-e", parentScript],
+        args: processTreeFixtureArgs(marker, 800),
         timeoutMs: 200,
         heartbeatMs: 50
       })).rejects.toBeInstanceOf(AgentExecError);
@@ -507,6 +534,63 @@ describe("runAgentExecution", () => {
       await expect(access(marker)).rejects.toThrow();
     } finally {
       await rm(temp, { recursive: true, force: true });
+    }
+  });
+
+  it("waits for bounded process-tree cleanup and returns only safe cleanup diagnostics", async () => {
+    let releaseCleanup = () => undefined;
+    let markCleanupStarted = () => undefined;
+    const cleanupStarted = new Promise<void>((resolve) => {
+      markCleanupStarted = resolve;
+    });
+    const cleanupGate = new Promise<void>((resolve) => {
+      releaseCleanup = resolve;
+    });
+    const terminator = vi.spyOn(processTree, "terminateProcessTree").mockImplementation(async (child, signal) => {
+      markCleanupStarted();
+      (child as unknown as { emit(event: string, error: Error): boolean }).emit(
+        "error",
+        Object.assign(new Error("private cleanup detail must stay hidden"), { code: "ESRCH" })
+      );
+      await cleanupGate;
+      child.kill(signal);
+      return {
+        confirmed: false,
+        diagnostic: "Bounded process-tree cleanup could not be confirmed."
+      };
+    });
+
+    try {
+      let settled = false;
+      const outcome = runAgentExecution({
+        kind: "custom",
+        appUrl: "https://preview.example.com",
+        contract,
+        mission,
+        command: process.execPath,
+        args: ["-e", "setInterval(() => {}, 1000)"],
+        timeoutMs: 50,
+        heartbeatMs: 10
+      }).then(
+        () => undefined,
+        (error: unknown) => error
+      ).finally(() => {
+        settled = true;
+      });
+
+      await cleanupStarted;
+      await new Promise((resolve) => setTimeout(resolve, 75));
+      expect(settled).toBe(false);
+      releaseCleanup();
+
+      const error = await outcome;
+      expect(error).toBeInstanceOf(AgentExecError);
+      expect((error as AgentExecError).message).toContain("Bounded process-tree cleanup could not be confirmed.");
+      expect((error as AgentExecError).message).toContain("subprocess emitted ESRCH during cleanup");
+      expect((error as AgentExecError).message).not.toContain("private cleanup detail");
+    } finally {
+      releaseCleanup();
+      terminator.mockRestore();
     }
   });
 

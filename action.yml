@@ -15,11 +15,11 @@ inputs:
     description: Named app target from .preflight-scout/config.yml app.targets.
     required: false
   target-env:
-    description: Target URL from .preflight-scout/config.yml when app-url is not set.
+    description: Exact local/staging URL from config, or automatic URL discovery when set to auto.
     required: false
     default: auto
   detect-deployment-url:
-    description: Use the latest successful GitHub Deployment URL for the PR head SHA when app-url is not set.
+    description: With target-env auto, use the latest successful GitHub Deployment URL when app-url is not set.
     required: false
     default: "true"
   mission-id:
@@ -50,9 +50,8 @@ inputs:
     required: false
     default: "true"
   output-dir:
-    description: Directory for report, JSON, HTML, screenshots, and run artifacts.
+    description: Directory for report, JSON, HTML, screenshots, and run artifacts. Defaults under RUNNER_TEMP.
     required: false
-    default: .preflight-scout/runs/github-action
   comment:
     description: Post or update a PR comment with the Markdown report.
     required: false
@@ -123,7 +122,7 @@ runs:
       env:
         PREFLIGHT_SCOUT_GITHUB_TOKEN: ${{ inputs.github-token }}
         PREFLIGHT_SCOUT_MODE: ${{ inputs.mode }}
-        PREFLIGHT_SCOUT_APP_URL: ${{ inputs.app-url }}
+        PREFLIGHT_SCOUT_ACTION_APP_URL_INPUT: ${{ inputs.app-url }}
         PREFLIGHT_SCOUT_TARGET: ${{ inputs.target }}
         PREFLIGHT_SCOUT_TARGET_ENV: ${{ inputs.target-env }}
         PREFLIGHT_SCOUT_DETECT_DEPLOYMENT_URL: ${{ inputs.detect-deployment-url }}

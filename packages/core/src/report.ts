@@ -1,6 +1,7 @@
 import { lstatSync, realpathSync } from "node:fs";
 import path from "node:path";
 import type { HumanReportSummary, ImpactMap, MissionRunResult, QAMission, QAFlowMission } from "./types.js";
+import { INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN } from "./impact-mapper.js";
 
 export const GENERATED_OUTPUT_LICENSE = {
   id: "MIT",
@@ -29,6 +30,7 @@ export function renderHumanReport(input: {
 }): string {
   const runResults = normalizeRunResults(input.runResult, input.runResults);
   const summary = buildHumanReportSummary({ ...input, runResults });
+  const unknowns = reportUnknowns(input.impactMap, input.mission);
   const lines: string[] = [];
 
   lines.push("# Preflight Scout Report");
@@ -128,11 +130,11 @@ export function renderHumanReport(input: {
     }
   }
 
-  if (input.mission.unknowns.length) {
+  if (unknowns.length) {
     lines.push("");
     lines.push("## Needs context");
     lines.push("");
-    for (const unknown of input.mission.unknowns) lines.push(`- ${escapeUntrustedMarkdown(unknown)}`);
+    for (const unknown of unknowns) lines.push(`- ${escapeUntrustedMarkdown(unknown)}`);
   }
 
   lines.push("");
@@ -157,6 +159,7 @@ export function renderHumanReportHtml(input: {
 }): string {
   const runResults = normalizeRunResults(input.runResult, input.runResults);
   const summary = buildHumanReportSummary({ ...input, runResults });
+  const unknowns = reportUnknowns(input.impactMap, input.mission);
   const releaseTone = releaseDecisionTone(summary.releaseDecision.status);
   const releaseLabel = formatReleaseDecision(summary.releaseDecision.status);
   const browserOutcome = summary.counts.browserMissions
@@ -477,7 +480,7 @@ ${renderList(input.mission.automationCandidates.map((flow) => `${flow.title} as 
     <section class="report-section" aria-labelledby="edge-cases"><h2 id="edge-cases" data-index="07">Edge cases to check</h2>${renderList(input.mission.edgeCases)}</section>
   </div>
 
-  ${input.mission.unknowns.length ? `<section class="report-section" aria-labelledby="human-context"><h2 id="human-context" data-index="08">Needs context</h2>${renderList(input.mission.unknowns)}</section>` : ""}
+  ${unknowns.length ? `<section class="report-section" aria-labelledby="human-context"><h2 id="human-context" data-index="08">Needs context</h2>${renderList(unknowns)}</section>` : ""}
   <footer class="output-license"><span>Local files / review before shipping</span><span>${GENERATED_OUTPUT_LICENSE.notice} <a href="${GENERATED_OUTPUT_LICENSE.url}">Output license</a>.</span></footer>
 </main>
 </body>
@@ -496,12 +499,13 @@ export function buildHumanReportSummary(input: {
   const passed = runResults.filter((result) => result.status === "passed").length;
   const failed = runResults.filter((result) => result.status === "failed").length;
   const blocked = runResults.filter((result) => result.status === "blocked").length;
+  const incompleteRepositoryInventory = input.impactMap.unknowns.includes(INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN);
   return {
     generatedAt: input.generatedAt ?? new Date().toISOString(),
     title: input.mission.title,
     risk: input.mission.risk,
-    verdict: runResults.length === 0 ? "no_browser_evidence" : failed > 0 || blocked > 0 ? "needs_attention" : "ready_for_human_review",
-    releaseDecision: releaseDecision(input.mission, runResults, { failed, blocked }),
+    verdict: incompleteRepositoryInventory ? "needs_attention" : runResults.length === 0 ? "no_browser_evidence" : failed > 0 || blocked > 0 ? "needs_attention" : "ready_for_human_review",
+    releaseDecision: releaseDecision(input.impactMap, input.mission, runResults, { failed, blocked }),
     counts: {
       affectedAreas: input.mission.affectedAreas.length,
       manualChecks: input.mission.manualChecklist.length,
@@ -611,10 +615,21 @@ function renderAffectedAreas(areas: QAMission["affectedAreas"]): string {
 }
 
 function releaseDecision(
+  impactMap: ImpactMap,
   mission: QAMission,
   runResults: MissionRunResult[],
   counts: { failed: number; blocked: number }
 ): HumanReportSummary["releaseDecision"] {
+  if (impactMap.unknowns.includes(INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN)) {
+    return {
+      status: "do_not_ship_yet",
+      reason: "Repository inventory was incomplete, so the impact analysis is not exhaustive.",
+      nextSteps: [
+        "Reduce the eligible repository inventory or raise the reviewed file limit before relying on this analysis.",
+        "Rerun Preflight Scout and review a report with complete repository coverage."
+      ]
+    };
+  }
   if (!runResults.length) {
     return {
       status: "needs_browser_evidence",
@@ -646,6 +661,10 @@ function releaseDecision(
       "Keep this report with the release notes."
     ]
   };
+}
+
+function reportUnknowns(impactMap: ImpactMap, mission: QAMission): string[] {
+  return [...new Set([...impactMap.unknowns, ...mission.unknowns])];
 }
 
 function formatReleaseDecision(status: HumanReportSummary["releaseDecision"]["status"]): string {

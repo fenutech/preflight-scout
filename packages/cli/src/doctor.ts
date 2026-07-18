@@ -3,7 +3,7 @@ import { access, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { AppUrlValidationError, browserCredentialKindForEnvName, createTrustedGit, loadContract, redactText, resolveTargetUrl, resolveTrustedGitCommit, validateAppUrl, type QAContract, type TrustedGit } from "@preflight-scout/core";
+import { AppUrlValidationError, browserCredentialKindForEnvName, createTrustedGit, loadContract, redactText, resolveTargetUrl, resolveTrustedGitCommit, TargetEnvironmentError, validateAppUrl, type QAContract, type TrustedGit } from "@preflight-scout/core";
 import { AgentExecError, runAgentCapabilityProbe, type AgentExecKind, type AgentExecResult } from "@preflight-scout/agent-exec";
 import { loadEnvFile } from "./local.js";
 
@@ -446,9 +446,13 @@ async function checkTargetUrl(contract: QAContract, options: { url?: string; tar
       env: options.env
     });
   } catch (error) {
-    return error instanceof AppUrlValidationError
-      ? fail("target_url", "Target URL", "Refused unsafe target URL.", safeDoctorDiagnostic(error))
-      : warn("target_url", "Target URL", "No target URL resolved.", safeDoctorDiagnostic(error));
+    if (error instanceof AppUrlValidationError) {
+      return fail("target_url", "Target URL", "Refused unsafe target URL.", safeDoctorDiagnostic(error));
+    }
+    if (error instanceof TargetEnvironmentError) {
+      return fail("target_url", "Target URL", "Selected target environment is unavailable.", safeDoctorDiagnostic(error));
+    }
+    return warn("target_url", "Target URL", "No target URL resolved.", safeDoctorDiagnostic(error));
   }
   const targetUrl = resolvedTargetUrl;
 

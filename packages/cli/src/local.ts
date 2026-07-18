@@ -181,6 +181,12 @@ export async function resolveBaseRef(root: string, explicit: string | undefined,
   throw new Error("Could not resolve a base ref. Pass --base, set PREFLIGHT_SCOUT_BASE_REF, or add defaults.baseRef to .preflight-scout/config.yml.");
 }
 
+export async function resolveHeadRef(root: string, reference = "HEAD"): Promise<string> {
+  const resolvedRoot = path.resolve(root);
+  const git = await createTrustedGit({ targetRoot: resolvedRoot });
+  return resolveTrustedGitCommit(git, resolvedRoot, reference);
+}
+
 export async function resolveStorageOptions(
   root: string,
   contract: QAContract,
@@ -362,9 +368,69 @@ export async function resolveAnalysisOutputDir(
   root: string,
   explicitPath: string | undefined,
   configuredPath: string | undefined
-): Promise<string> {
-  if (explicitPath) return resolveRepoPath(root, explicitPath);
-  return resolveContractOutputDir(root, configuredPath ?? ".preflight-scout/runs/latest");
+): Promise<{ directory: string; boundary: string }> {
+  const resolvedRoot = path.resolve(root);
+  if (!explicitPath) {
+    return {
+      directory: await resolveContractOutputDir(resolvedRoot, configuredPath ?? ".preflight-scout/runs/latest"),
+      boundary: resolvedRoot
+    };
+  }
+  const requested = path.resolve(resolveRepoPath(resolvedRoot, explicitPath));
+  if (isPathWithin(resolvedRoot, requested)) {
+    await assertExplicitRepoOutputDirectoryIsSafe(resolvedRoot, requested);
+    return { directory: requested, boundary: resolvedRoot };
+  }
+  const external = await resolveExternalWriteDirectory(requested);
+  let canonicalRoot: string;
+  try {
+    canonicalRoot = await fs.realpath(resolvedRoot);
+  } catch {
+    throw new Error("The repository root could not be canonicalized safely.");
+  }
+  if (isPathWithin(canonicalRoot, external.directory)) {
+    await assertExplicitRepoOutputDirectoryIsSafe(canonicalRoot, external.directory);
+    return { directory: external.directory, boundary: canonicalRoot };
+  }
+  return external;
+}
+
+export async function resolveArtifactReadDirectory(
+  root: string,
+  value: string
+): Promise<{ directory: string; boundary: string }> {
+  const resolvedRoot = path.resolve(root);
+  const requested = path.resolve(resolveRepoPath(resolvedRoot, value));
+  if (isPathWithin(resolvedRoot, requested)) {
+    return { directory: requested, boundary: resolvedRoot };
+  }
+  try {
+    const canonical = await fs.realpath(requested);
+    const stats = await fs.lstat(canonical);
+    if (!stats.isDirectory() || stats.isSymbolicLink()) throw new Error("not a directory");
+    return { directory: canonical, boundary: canonical };
+  } catch {
+    throw new Error("The explicit external artifact directory does not exist or is unsafe.");
+  }
+}
+
+export async function resolveArtifactReadFile(
+  root: string,
+  value: string
+): Promise<{ file: string; boundary: string }> {
+  const resolvedRoot = path.resolve(root);
+  const requested = path.resolve(resolveRepoPath(resolvedRoot, value));
+  if (isPathWithin(resolvedRoot, requested)) {
+    return { file: requested, boundary: resolvedRoot };
+  }
+  try {
+    const canonical = await fs.realpath(requested);
+    const stats = await fs.lstat(canonical);
+    if (!stats.isFile() || stats.isSymbolicLink()) throw new Error("not a file");
+    return { file: canonical, boundary: path.dirname(canonical) };
+  } catch {
+    throw new Error("The explicit external artifact file does not exist or is unsafe.");
+  }
 }
 
 export function createProgressReporter(enabled = true): ProgressCallback {
@@ -379,6 +445,97 @@ export function createProgressReporter(enabled = true): ProgressCallback {
 
 export function resolveRepoPath(root: string, value: string): string {
   return path.isAbsolute(value) ? value : path.join(root, value);
+}
+
+async function resolveExternalWriteDirectory(
+  requested: string
+): Promise<{ directory: string; boundary: string }> {
+  let existing = requested;
+  const missingSegments: string[] = [];
+  for (;;) {
+    try {
+      const canonicalBoundary = await fs.realpath(existing);
+      const stats = await fs.lstat(canonicalBoundary);
+      if (!stats.isDirectory() || stats.isSymbolicLink()) throw new Error("unsafe directory");
+      return {
+        directory: path.join(canonicalBoundary, ...missingSegments),
+        boundary: canonicalBoundary
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw new Error("The explicit external output directory is unsafe.");
+      }
+    }
+    const parent = path.dirname(existing);
+    if (parent === existing) throw new Error("The explicit external output directory has no safe existing ancestor.");
+    missingSegments.unshift(path.basename(existing));
+    existing = parent;
+  }
+}
+
+async function assertExplicitRepoOutputDirectoryIsSafe(root: string, outputDir: string): Promise<void> {
+  try {
+    await assertPathHasNoSymlinks(root, outputDir, { allowMissing: true, leafType: "directory" });
+  } catch {
+    throw explicitRepoOutputPathError("it traverses an unsafe symbolic-link or non-directory path");
+  }
+
+  const relativePath = path.relative(root, outputDir).split(path.sep).join("/");
+  if (!relativePath) {
+    throw explicitRepoOutputPathError("the repository root cannot be used as an artifact directory");
+  }
+
+  try {
+    const git = await createTrustedGit({ targetRoot: root });
+    const { stdout } = await git.exec(["rev-parse", "--is-inside-work-tree"], { cwd: root });
+    if (stdout.trim() !== "true") throw new Error("not inside a Git worktree");
+    if (await gitPredicate(git, root, ["--literal-pathspecs", "ls-files", "--error-unmatch", "--", relativePath])) {
+      throw explicitRepoOutputPathError("it must be untracked and ignored by Git");
+    }
+    if (!await gitProvesDirectoryIsExcluded(git, root, relativePath)) {
+      throw explicitRepoOutputPathError("it must be untracked and ignored by Git");
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("Refusing explicit in-repository output directory")) {
+      throw error;
+    }
+    throw explicitRepoOutputPathError("Git could not prove that it is untracked and ignored");
+  }
+}
+
+async function gitProvesDirectoryIsExcluded(git: TrustedGit, root: string, relativePath: string): Promise<boolean> {
+  const directoryPath = `${relativePath}/`;
+  const directoryMatch = await positiveGitIgnoreMatch(git, root, directoryPath);
+  if (!directoryMatch) return false;
+
+  // Only a winning directory-only pattern is sufficient. Broad file patterns
+  // such as `output-*` can match a missing path, then lose after a later
+  // directory negation becomes applicable. Contents-only rules such as
+  // `output/*` likewise do not exclude the parent directory itself.
+  return directoryMatch.endsWith("/");
+}
+
+async function positiveGitIgnoreMatch(
+  git: TrustedGit,
+  root: string,
+  pathname: string
+): Promise<string | undefined> {
+  if (!await gitPredicate(git, root, ["check-ignore", "--quiet", "--no-index", "--", pathname])) {
+    return undefined;
+  }
+
+  // Verbose output is `<source>:<line>:<pattern>\t<path>`. We only accept a
+  // match whose pathname suffix is exactly the requested spelling. Match the
+  // known suffix instead of parsing source/pattern fields; unusual quoted path
+  // output is rejected conservatively.
+  const { stdout } = await git.exec(
+    ["-c", "core.quotePath=false", "check-ignore", "--verbose", "--no-index", "--", pathname],
+    { cwd: root, maxBuffer: 64 * 1024 }
+  );
+  const output = stdout.replace(/\r?\n$/, "");
+  const pathSuffix = `\t${pathname}`;
+  if (!output.endsWith(pathSuffix)) return undefined;
+  return output.slice(0, -pathSuffix.length);
 }
 
 function parseEnvLine(line: string): [string, string] | undefined {
@@ -502,6 +659,13 @@ function contractOutputPathError(
     `Refusing contract-derived output directory ${JSON.stringify(configuredPath)}: ${reason}. `
     + `If another path is intentional, pass it explicitly with ${explicitFlag}.`,
     cause === undefined ? undefined : { cause }
+  );
+}
+
+function explicitRepoOutputPathError(reason: string): Error {
+  return new Error(
+    `Refusing explicit in-repository output directory: ${reason}. `
+    + "Use an ignored path or pass an explicit path outside the repository."
   );
 }
 

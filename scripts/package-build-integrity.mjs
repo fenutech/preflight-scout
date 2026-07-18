@@ -31,14 +31,17 @@ if (mode === "clean") {
   process.exit(0);
 }
 
-const inputs = await collectBuildInputs();
+const sourceFiles = await collectSourceFiles();
+const inputs = await collectBuildInputs(sourceFiles);
 const outputs = await collectBuildOutputs();
 assertDeclaredEntrypoints(outputs);
 
 const expected = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   packageName: manifest.name,
   packageVersion: manifest.version,
+  packageRuntimeHash: hashRuntimeManifest(manifest),
+  sourceHash: await hashFiles(sourceIdentityInputs(sourceFiles)),
   inputHash: await hashFiles(inputs),
   outputs: await hashFileMap(outputs)
 };
@@ -60,8 +63,7 @@ if (mode === "write") {
   console.log(`Verified build integrity for ${manifest.name} (${outputs.length} files).`);
 }
 
-async function collectBuildInputs() {
-  const sourceFiles = await collectFiles(path.join(packageDir, "src"), (file) => !file.endsWith(".test.ts"));
+async function collectBuildInputs(sourceFiles) {
   return [
     { file: path.join(packageDir, "package.json"), label: relativePathLabel(root, path.join(packageDir, "package.json")) },
     { file: path.join(packageDir, "tsconfig.json"), label: relativePathLabel(root, path.join(packageDir, "tsconfig.json")) },
@@ -72,6 +74,17 @@ async function collectBuildInputs() {
     { file: fileURLToPath(import.meta.url), label: "scripts/package-build-integrity.mjs" },
     { file: pathLabelsScript, label: "scripts/package-build-paths.mjs" },
     ...await resolveTypeScriptToolchainInputs(),
+    ...sourceFiles.map((file) => ({ file, label: relativePathLabel(root, file) }))
+  ];
+}
+
+async function collectSourceFiles() {
+  return collectFiles(path.join(packageDir, "src"), (file) => !file.endsWith(".test.ts"));
+}
+
+function sourceIdentityInputs(sourceFiles) {
+  return [
+    { file: path.join(packageDir, "package.json"), label: relativePathLabel(root, path.join(packageDir, "package.json")) },
     ...sourceFiles.map((file) => ({ file, label: relativePathLabel(root, file) }))
   ];
 }
@@ -173,6 +186,43 @@ async function hashFileMap(entries) {
     output[label] = `sha256:${createHash("sha256").update(await readFile(file)).digest("hex")}`;
   }
   return output;
+}
+
+function hashRuntimeManifest(value) {
+  return `sha256:${createHash("sha256").update(stableSerialize({
+    name: value.name,
+    version: value.version,
+    type: value.type,
+    main: value.main,
+    types: value.types,
+    exports: value.exports,
+    imports: value.imports,
+    bin: value.bin,
+    engines: value.engines,
+    dependencies: canonicalizeInternalDependencyRanges(value.dependencies, value.version),
+    optionalDependencies: canonicalizeInternalDependencyRanges(value.optionalDependencies, value.version),
+    peerDependencies: canonicalizeInternalDependencyRanges(value.peerDependencies, value.version)
+  }), "utf8").digest("hex")}`;
+}
+
+function canonicalizeInternalDependencyRanges(value, packageVersion) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || typeof packageVersion !== "string") return value;
+  return Object.fromEntries(Object.entries(value).map(([name, range]) => [
+    name,
+    name.startsWith("@preflight-scout/") && typeof range === "string" && range.startsWith("workspace:")
+      ? packageVersion
+      : range
+  ]));
+}
+
+function stableSerialize(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((item) => stableSerialize(item)).join(",")}]`;
+  return `{${Object.keys(value)
+    .filter((key) => value[key] !== undefined)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableSerialize(value[key])}`)
+    .join(",")}}`;
 }
 
 function normalizeLabels(entries) {

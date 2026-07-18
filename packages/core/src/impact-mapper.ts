@@ -1,8 +1,11 @@
 import type { ImpactMap, PullRequestContext, QAContract, RepoIndex } from "./types.js";
 import type { LLMClient, LLMMessage } from "./llm.js";
 import { ImpactMapSchema } from "./schemas.js";
+import { normalizeRepoFileInventoryCoverage, redactRepoIndex } from "./redaction.js";
 
 export const MAX_IMPACT_PROMPT_CHARS = 900 * 1024;
+export const INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN = "Repository file inventory is incomplete; impact coverage is not exhaustive.";
+const MAX_IMPACT_UNKNOWNS = 200;
 const MAX_PROMPT_REPO_INDEX_CHARS = 180 * 1024;
 const MAX_PROMPT_CONTRACT_CHARS = 100 * 1024;
 const MAX_PROMPT_PULL_REQUEST_CHARS = 600 * 1024;
@@ -18,10 +21,27 @@ export async function createImpactMap(input: {
     throw new Error("Preflight Scout impact mapping requires an LLM provider. Set PREFLIGHT_SCOUT_LLM_PROVIDER to openai/anthropic/gemini with an API key, or codex-exec/claude-exec/gemini-exec for a local agent CLI.");
   }
 
-  return input.llm.completeJson<ImpactMap>(impactPrompt(input.repoIndex, input.contract, input.pullRequest), {
+  const safeRepoIndex = redactRepoIndex(input.repoIndex);
+  const impactMap = await input.llm.completeJson<ImpactMap>(impactPrompt(safeRepoIndex, input.contract, input.pullRequest), {
     schema: ImpactMapSchema,
     schemaName: "impact_map"
   });
+  if (!normalizeRepoFileInventoryCoverage(input.repoIndex).complete) {
+    impactMap.unknowns = appendRequiredUnknown(
+      impactMap.unknowns,
+      INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN,
+      MAX_IMPACT_UNKNOWNS
+    );
+  }
+  return ImpactMapSchema.parse(impactMap);
+}
+
+export function appendRequiredUnknown(unknowns: string[], required: string, maxItems: number): string[] {
+  if (!Number.isSafeInteger(maxItems) || maxItems < 1) {
+    throw new Error("maxItems must be a positive safe integer");
+  }
+  const otherUnknowns = [...new Set(unknowns)].filter((unknown) => unknown !== required);
+  return [...otherUnknowns.slice(0, maxItems - 1), required];
 }
 
 function impactPrompt(repoIndex: RepoIndex, contract: QAContract, pullRequest: PullRequestContext): LLMMessage[] {
@@ -41,11 +61,12 @@ Return only valid JSON matching this shape:
 Your job is to infer product impact from code and config context, like a senior QA engineer reading the PR.
 Do not use generic checklists.
 Do not pretend certainty. If repo context is insufficient, add concrete unknowns.
-If contextCoverage or promptCoverage says context is incomplete, state that in unknowns and do not claim exhaustive impact coverage.
+If fileInventoryCoverage, contextCoverage, or promptCoverage says context is incomplete, state that in unknowns and do not claim exhaustive impact coverage.
+The repositoryInventory field is bounded raw context, not a detected product map. The built-in indexer classifies package-manager evidence only; its other context is raw Git-visible file paths and selected root project-file excerpts. Empty frameworks, routes, components, tests, configFiles, or integrationHints arrays mean unclassified, not absent.
 Every affected area must include evidence tied to changed files, routes, or explicit contract context.`;
   const promptPayload = JSON.stringify({
     task: "Map this pull request to user-visible QA impact: routes, APIs, roles, data, integrations, and release risk.",
-    repoIndex: boundRepoIndexForPrompt(repoIndex),
+    repositoryInventory: boundRepoIndexForPrompt(repoIndex),
     contract: boundContractForPrompt(contract),
     pullRequest: boundPullRequestForPrompt(pullRequest)
   });
@@ -115,6 +136,7 @@ function boundPullRequestForPrompt(pullRequest: PullRequestContext): Record<stri
 function boundRepoIndexForPrompt(repoIndex: RepoIndex): Record<string, unknown> {
   const output: Record<string, unknown> = {
     root: clipPromptString(repoIndex.root),
+    ...(repoIndex.fileInventoryCoverage ? { fileInventoryCoverage: repoIndex.fileInventoryCoverage } : {}),
     packageManager: repoIndex.packageManager,
     manifests: {},
     files: [],

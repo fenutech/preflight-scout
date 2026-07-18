@@ -2,6 +2,7 @@ import { link, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN } from "./impact-mapper.js";
 import { GENERATED_OUTPUT_LICENSE, buildHumanReportSummary, renderHumanReport, renderHumanReportHtml } from "./report.js";
 import type { ImpactMap, MissionRunResult, QAMission } from "./types.js";
 
@@ -131,6 +132,43 @@ describe("human report", () => {
     expect(summary.counts.failed).toBe(1);
     expect(summary.browserMissions[0]?.finalMessage).toBe("Total did not update.");
     expect(summary.browserMissions[0]?.evidence?.tracePath).toContain("trace.zip");
+  });
+
+  it("cannot report readiness when repository inventory was incomplete", () => {
+    const passedResult: MissionRunResult = {
+      missionId: "auto-checkout",
+      status: "passed",
+      results: [{ stepId: "done", status: "passed", message: "Passed." }],
+      artifacts: []
+    };
+    const incompleteImpactMap: ImpactMap = {
+      ...impactMap,
+      unknowns: [INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN]
+    };
+    const missionWithoutModelDisclosure: QAMission = { ...mission, unknowns: [] };
+
+    const summary = buildHumanReportSummary({
+      impactMap: incompleteImpactMap,
+      mission: missionWithoutModelDisclosure,
+      runResults: [passedResult]
+    });
+    const markdown = renderHumanReport({
+      impactMap: incompleteImpactMap,
+      mission: missionWithoutModelDisclosure,
+      runResults: [passedResult]
+    });
+
+    expect(summary.verdict).toBe("needs_attention");
+    expect(summary.releaseDecision.status).toBe("do_not_ship_yet");
+    expect(markdown).toContain(INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN);
+    expect(markdown).toContain("Repository inventory was incomplete");
+
+    const noBrowserSummary = buildHumanReportSummary({
+      impactMap: incompleteImpactMap,
+      mission: missionWithoutModelDisclosure
+    });
+    expect(noBrowserSummary.verdict).toBe("needs_attention");
+    expect(noBrowserSummary.releaseDecision.status).toBe("do_not_ship_yet");
   });
 
   it("renders a print-friendly HTML report with screenshot evidence", () => {

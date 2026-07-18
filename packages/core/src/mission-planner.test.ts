@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { createQAMission, type ImpactMap, type LLMClient, type LLMMessage, type QAContract, type StructuredJsonOptions } from "./index.js";
+import { createQAMission, INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN, type ImpactMap, type LLMClient, type LLMMessage, type QAContract, type StructuredJsonOptions } from "./index.js";
 
 class CaptureLLM implements LLMClient {
   messages: LLMMessage[] = [];
+
+  constructor(private readonly unknowns: string[] = []) {}
 
   async completeJson<T>(messages: LLMMessage[], _options: StructuredJsonOptions<T>): Promise<T> {
     this.messages = messages;
@@ -15,7 +17,7 @@ class CaptureLLM implements LLMClient {
       manualChecklist: [],
       edgeCases: [],
       automationCandidates: [],
-      unknowns: []
+      unknowns: this.unknowns
     } as T;
   }
 }
@@ -48,6 +50,27 @@ describe("createQAMission", () => {
     expect(prompt).toContain("Use approval_gate only for an exact action label");
     expect(prompt).toContain("Never use approval_gate merely because a locator is missing");
     expect(prompt).toContain("create an observe step");
+  });
+
+  it("preserves deterministic incomplete-inventory context when the model omits it", async () => {
+    const llm = new CaptureLLM();
+    const input = impactMap();
+    input.unknowns.push(INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN);
+
+    const mission = await createQAMission({ impactMap: input, contract: contract(), llm });
+
+    expect(mission.unknowns).toContain(INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN);
+  });
+
+  it("reserves schema space for deterministic inventory coverage", async () => {
+    const llm = new CaptureLLM(Array.from({ length: 200 }, (_, index) => `provider unknown ${index}`));
+    const input = impactMap();
+    input.unknowns.push(INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN);
+
+    const mission = await createQAMission({ impactMap: input, contract: contract(), llm });
+
+    expect(mission.unknowns).toHaveLength(200);
+    expect(mission.unknowns).toContain(INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN);
   });
 });
 

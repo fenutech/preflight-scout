@@ -29,6 +29,29 @@ describe("printHtmlReportToPdf", () => {
     expect(pdf.length).toBeGreaterThan(1000);
   });
 
+  it("resolves relative evidence from a validated root for verified HTML content", async () => {
+    const evidenceDir = path.join(dir, "browser-evidence", "current");
+    const evidencePath = path.join(evidenceDir, "evidence.svg");
+    await mkdir(evidenceDir, { recursive: true });
+    const circles = Array.from({ length: 600 }, (_, index) => {
+      const x = index % 30 * 8 + 4;
+      const y = Math.floor(index / 30) * 8 + 4;
+      const color = `hsl(${index % 360} 80% 50%)`;
+      return `<circle cx="${x}" cy="${y}" r="3" fill="${color}" />`;
+    }).join("");
+    await writeFile(evidencePath, `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="160">${circles}</svg>`);
+    const htmlContent = "<!doctype html><html><body><img src=\"browser-evidence/current/evidence.svg\" alt=\"missing evidence\"></body></html>";
+    const withoutBasePath = path.join(dir, "without-base.pdf");
+    const withBasePath = path.join(dir, "with-base.pdf");
+
+    await printHtmlReportToPdf({ htmlContent, pdfPath: withoutBasePath });
+    await printHtmlReportToPdf({ htmlContent, reportRoot: dir, pdfPath: withBasePath });
+    const [withoutBase, withBase] = await Promise.all([readFile(withoutBasePath), readFile(withBasePath)]);
+
+    expect(withBase.subarray(0, 4).toString()).toBe("%PDF");
+    expect(withBase.length).toBeGreaterThan(withoutBase.length + 1000);
+  });
+
   it("blocks network requests while rendering an arbitrary report", async () => {
     let requests = 0;
     const server = createServer((_request, response) => {

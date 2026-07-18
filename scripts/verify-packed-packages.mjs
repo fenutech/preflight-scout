@@ -97,7 +97,7 @@ for (const { manifest: source } of sourceManifests) {
   }
 
   const stamp = JSON.parse((await readArchiveFile(tarball, "package/dist/.preflight-scout-build.json")).toString("utf8"));
-  validateBuildStamp(source, stamp, listing);
+  validateBuildStamp(source, packed, stamp, listing);
   for (const [output, expectedHash] of Object.entries(stamp.outputs)) {
     const archivePath = `package/${output}`;
     const content = await readArchiveFile(tarball, archivePath);
@@ -181,12 +181,15 @@ function validatePackedManifest(source, packed, packageVersions) {
   }
 }
 
-function validateBuildStamp(source, stamp, listing) {
-  if (stamp.schemaVersion !== 2 || stamp.packageName !== source.name || stamp.packageVersion !== source.version) {
+function validateBuildStamp(source, packed, stamp, listing) {
+  if (stamp.schemaVersion !== 3 || stamp.packageName !== source.name || stamp.packageVersion !== source.version) {
     throw new Error(`${source.name} tarball contains a build stamp for a different package or schema.`);
   }
-  if (!/^sha256:[0-9a-f]{64}$/.test(stamp.inputHash) || !stamp.outputs || typeof stamp.outputs !== "object") {
+  if (!/^sha256:[0-9a-f]{64}$/.test(stamp.packageRuntimeHash) || !/^sha256:[0-9a-f]{64}$/.test(stamp.sourceHash) || !/^sha256:[0-9a-f]{64}$/.test(stamp.inputHash) || !stamp.outputs || typeof stamp.outputs !== "object") {
     throw new Error(`${source.name} tarball contains an invalid build stamp.`);
+  }
+  if (stamp.packageRuntimeHash !== hashRuntimeManifest(packed)) {
+    throw new Error(`${source.name} tarball package metadata does not match its build-stamp runtime hash.`);
   }
   const stampedPaths = Object.keys(stamp.outputs).sort();
   const packedOutputs = listing
@@ -201,6 +204,33 @@ function validateBuildStamp(source, stamp, listing) {
       throw new Error(`${source.name} tarball contains an invalid build-stamp output entry.`);
     }
   }
+}
+
+function hashRuntimeManifest(value) {
+  return `sha256:${createHash("sha256").update(stableSerialize({
+    name: value.name,
+    version: value.version,
+    type: value.type,
+    main: value.main,
+    types: value.types,
+    exports: value.exports,
+    imports: value.imports,
+    bin: value.bin,
+    engines: value.engines,
+    dependencies: value.dependencies,
+    optionalDependencies: value.optionalDependencies,
+    peerDependencies: value.peerDependencies
+  }), "utf8").digest("hex")}`;
+}
+
+function stableSerialize(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((item) => stableSerialize(item)).join(",")}]`;
+  return `{${Object.keys(value)
+    .filter((key) => value[key] !== undefined)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableSerialize(value[key])}`)
+    .join(",")}}`;
 }
 
 async function readArchiveFile(tarball, entry) {

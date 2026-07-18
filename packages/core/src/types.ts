@@ -61,9 +61,29 @@ export interface RepoRoute {
   kind: "page" | "api" | "unknown";
 }
 
+export interface KnownRepoFileInventoryCoverage {
+  /** Omitted only for compatibility with caller-constructed indexes from before coverage states were explicit. */
+  state?: "known";
+  maxFiles: number;
+  includedFiles: number;
+  complete: boolean;
+  note?: string;
+}
+
+export interface UnknownRepoFileInventoryCoverage {
+  state: "unknown";
+  includedFiles: number;
+  complete: false;
+  note: string;
+  maxFiles?: never;
+}
+
+export type RepoFileInventoryCoverage = KnownRepoFileInventoryCoverage | UnknownRepoFileInventoryCoverage;
+
 export interface RepoIndex {
   root: string;
   files: string[];
+  fileInventoryCoverage?: RepoFileInventoryCoverage;
   manifests: Record<string, string>;
   packageManager?: "npm" | "pnpm" | "yarn" | "bun";
   frameworks: string[];
@@ -184,6 +204,55 @@ export interface MissionRunResult {
     consolePath?: string;
     networkPath?: string;
     finalObservationPath?: string;
+  };
+}
+
+export type AnalysisRuntimeEntrypoint = "core-api" | "cli" | "github-action";
+
+export interface AnalysisRuntimeIdentity {
+  entrypoint: AnalysisRuntimeEntrypoint;
+  digest: string;
+  coreDigest: string;
+}
+
+export type ExecutionRuntimeEntrypoint = "cli-browser" | "github-action-browser";
+
+export interface ExecutionRuntimeIdentity {
+  entrypoint: ExecutionRuntimeEntrypoint;
+  digest: string;
+}
+
+export interface AnalysisProvenance {
+  createdAt: string;
+  toolVersion: string;
+  analysisRuntime: AnalysisRuntimeIdentity;
+  schemaDigest: string;
+  repositoryDigest: string;
+  repositoryContextDigest: string;
+  baseCommit: string;
+  headCommit: string;
+  contractDigest: string;
+}
+
+export interface AnalysisManifest extends AnalysisProvenance {
+  kind: "preflight-scout-analysis";
+  schemaVersion: 2;
+  artifacts: {
+    impactMapSha256: string;
+    missionSha256: string;
+    reportMarkdownSha256: string;
+    reportHtmlSha256: string;
+    reportSummarySha256: string;
+    reportPdfSha256?: string;
+    currentResults?: {
+      path: "run-result.json" | "run-results.json";
+      sha256: string;
+      executionRuntime: ExecutionRuntimeIdentity;
+      evidence: Array<{
+        path: string;
+        sha256: string;
+      }>;
+    };
   };
 }
 
