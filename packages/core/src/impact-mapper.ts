@@ -1,6 +1,7 @@
 import type { ImpactMap, PullRequestContext, QAContract, RepoIndex } from "./types.js";
 import type { LLMClient, LLMMessage } from "./llm.js";
 import { ImpactMapSchema } from "./schemas.js";
+import { normalizeRepoFileInventoryCoverage, redactRepoIndex } from "./redaction.js";
 
 export const MAX_IMPACT_PROMPT_CHARS = 900 * 1024;
 export const INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN = "Repository file inventory is incomplete; impact coverage is not exhaustive.";
@@ -20,11 +21,12 @@ export async function createImpactMap(input: {
     throw new Error("Preflight Scout impact mapping requires an LLM provider. Set PREFLIGHT_SCOUT_LLM_PROVIDER to openai/anthropic/gemini with an API key, or codex-exec/claude-exec/gemini-exec for a local agent CLI.");
   }
 
-  const impactMap = await input.llm.completeJson<ImpactMap>(impactPrompt(input.repoIndex, input.contract, input.pullRequest), {
+  const safeRepoIndex = redactRepoIndex(input.repoIndex);
+  const impactMap = await input.llm.completeJson<ImpactMap>(impactPrompt(safeRepoIndex, input.contract, input.pullRequest), {
     schema: ImpactMapSchema,
     schemaName: "impact_map"
   });
-  if (input.repoIndex.fileInventoryCoverage?.complete === false) {
+  if (!normalizeRepoFileInventoryCoverage(input.repoIndex).complete) {
     impactMap.unknowns = appendRequiredUnknown(
       impactMap.unknowns,
       INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN,

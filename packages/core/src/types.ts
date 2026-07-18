@@ -61,12 +61,24 @@ export interface RepoRoute {
   kind: "page" | "api" | "unknown";
 }
 
-export interface RepoFileInventoryCoverage {
+export interface KnownRepoFileInventoryCoverage {
+  /** Omitted only for compatibility with caller-constructed indexes from before coverage states were explicit. */
+  state?: "known";
   maxFiles: number;
   includedFiles: number;
   complete: boolean;
   note?: string;
 }
+
+export interface UnknownRepoFileInventoryCoverage {
+  state: "unknown";
+  includedFiles: number;
+  complete: false;
+  note: string;
+  maxFiles?: never;
+}
+
+export type RepoFileInventoryCoverage = KnownRepoFileInventoryCoverage | UnknownRepoFileInventoryCoverage;
 
 export interface RepoIndex {
   root: string;

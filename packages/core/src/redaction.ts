@@ -1,5 +1,5 @@
 import { isSafeIndexedPath } from "./fs.js";
-import type { PullRequestContext, QAContract, RepoIndex } from "./types.js";
+import type { PullRequestContext, QAContract, RepoFileInventoryCoverage, RepoIndex } from "./types.js";
 
 const SECRET_PATTERNS = [
   /sk_live_[A-Za-z0-9_]+/g,
@@ -18,6 +18,9 @@ const SECRET_PATTERNS = [
 ];
 
 const OMITTED_SENSITIVE_FILE_CONTEXT = "[OMITTED_SENSITIVE_FILE_CONTEXT]";
+export const MAX_REPO_INVENTORY_COVERAGE_NOTE_CHARS = 1024;
+export const UNKNOWN_REPO_INVENTORY_COVERAGE_NOTE =
+  "Repository file-inventory coverage metadata is unavailable. Treat the inventory as incomplete and non-exhaustive.";
 
 export function redactText(value: string, additionalSecrets: Iterable<string> = []): string {
   let redacted = value;
@@ -37,7 +40,7 @@ export function redactRepoIndex(repoIndex: RepoIndex): RepoIndex {
   return {
     root: ".",
     files: redactPathList(repoIndex.files, redact),
-    fileInventoryCoverage: repoIndex.fileInventoryCoverage,
+    fileInventoryCoverage: redactRepoFileInventoryCoverage(repoIndex, redact),
     manifests: Object.fromEntries(
       Object.entries(repoIndex.manifests)
         .filter(([key]) => isSafeIndexedPath(key))
@@ -55,6 +58,68 @@ export function redactRepoIndex(repoIndex: RepoIndex): RepoIndex {
     configFiles: redactPathList(repoIndex.configFiles, redact),
     integrationHints: repoIndex.integrationHints.map(redact)
   };
+}
+
+/**
+ * Older or caller-constructed RepoIndex values may not carry coverage metadata.
+ * Absence is never evidence of exhaustive enumeration, so normalize it to an
+ * explicit, deterministic non-exhaustive state before model or report use.
+ */
+export function normalizeRepoFileInventoryCoverage(
+  repoIndex: Pick<RepoIndex, "files" | "fileInventoryCoverage">
+): RepoFileInventoryCoverage {
+  const coverage = repoIndex.fileInventoryCoverage;
+  if (coverage) {
+    if (coverage.state === "unknown") {
+      return {
+        state: "unknown",
+        includedFiles: coverage.includedFiles,
+        complete: false,
+        note: coverage.note
+      };
+    }
+    return {
+      state: "known",
+      maxFiles: coverage.maxFiles,
+      includedFiles: coverage.includedFiles,
+      complete: coverage.complete,
+      ...(coverage.note ? { note: coverage.note } : {})
+    };
+  }
+  return {
+    state: "unknown",
+    includedFiles: repoIndex.files.length,
+    complete: false,
+    note: UNKNOWN_REPO_INVENTORY_COVERAGE_NOTE
+  };
+}
+
+function redactRepoFileInventoryCoverage(
+  repoIndex: Pick<RepoIndex, "files" | "fileInventoryCoverage">,
+  redact: (value: string) => string
+): RepoFileInventoryCoverage {
+  const coverage = normalizeRepoFileInventoryCoverage(repoIndex);
+  if (coverage.state === "unknown") {
+    return {
+      state: "unknown",
+      includedFiles: coverage.includedFiles,
+      complete: false,
+      note: clipCoverageNote(redact(coverage.note))
+    };
+  }
+  return {
+    state: "known",
+    maxFiles: coverage.maxFiles,
+    includedFiles: coverage.includedFiles,
+    complete: coverage.complete,
+    ...(coverage.note ? { note: clipCoverageNote(redact(coverage.note)) } : {})
+  };
+}
+
+function clipCoverageNote(value: string): string {
+  if (value.length <= MAX_REPO_INVENTORY_COVERAGE_NOTE_CHARS) return value;
+  const suffix = "\n[truncated inventory-coverage note]";
+  return `${value.slice(0, MAX_REPO_INVENTORY_COVERAGE_NOTE_CHARS - suffix.length)}${suffix}`;
 }
 
 export function redactPullRequestContext(pullRequest: PullRequestContext): PullRequestContext {

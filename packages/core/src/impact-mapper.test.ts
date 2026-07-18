@@ -128,6 +128,66 @@ describe("impact prompt budgets", () => {
     expect(result.unknowns).toContain(INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN);
   });
 
+  it("treats missing inventory coverage as explicitly unknown and non-exhaustive", async () => {
+    const llm = new CapturingImpactLLM([]);
+    const repoIndex: RepoIndex = {
+      root: ".",
+      files: ["src/one.ts"],
+      manifests: {},
+      frameworks: [],
+      routes: [],
+      components: [],
+      tests: [],
+      configFiles: [],
+      integrationHints: []
+    };
+
+    const result = await createImpactMap({ repoIndex, contract, pullRequest: { files: [] }, llm });
+
+    const payload = JSON.parse(llm.messages.find((message) => message.role === "user")?.content ?? "{}") as any;
+    expect(payload.repoIndex.fileInventoryCoverage).toMatchObject({
+      state: "unknown",
+      complete: false,
+      includedFiles: 1
+    });
+    expect(payload.repoIndex.fileInventoryCoverage.note).toContain("metadata is unavailable");
+    expect(payload.repoIndex.fileInventoryCoverage).not.toHaveProperty("maxFiles");
+    expect(result.unknowns).toContain(INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN);
+  });
+
+  it("redacts and bounds inventory coverage notes before the impact prompt", async () => {
+    const llm = new CapturingImpactLLM([]);
+    const root = "/Users/alice/Customers/acme-private-app";
+    const secret = ["sk", "test", "abcdefghijklmnopqrstuvwxyz"].join("_");
+    const repoIndex: RepoIndex = {
+      root,
+      files: ["src/one.ts"],
+      fileInventoryCoverage: {
+        maxFiles: 1,
+        includedFiles: 1,
+        complete: false,
+        note: `root=${root}; token=${secret}; ${"detail ".repeat(400)}`
+      },
+      manifests: {},
+      frameworks: [],
+      routes: [],
+      components: [],
+      tests: [],
+      configFiles: [],
+      integrationHints: []
+    };
+
+    await createImpactMap({ repoIndex, contract, pullRequest: { files: [] }, llm });
+
+    const prompt = llm.messages.map((message) => message.content).join("\n");
+    const payload = JSON.parse(llm.messages.find((message) => message.role === "user")?.content ?? "{}") as any;
+    expect(prompt).not.toContain(root);
+    expect(prompt).not.toContain(secret);
+    expect(payload.repoIndex.fileInventoryCoverage.note).toContain("[REDACTED_REPO_ROOT]");
+    expect(payload.repoIndex.fileInventoryCoverage.note).toContain("[REDACTED_SECRET]");
+    expect(payload.repoIndex.fileInventoryCoverage.note.length).toBeLessThanOrEqual(1024);
+  });
+
   it("reserves schema space for deterministic inventory coverage", async () => {
     const llm = new CapturingImpactLLM(Array.from({ length: 200 }, (_, index) => `provider unknown ${index}`));
     const repoIndex: RepoIndex = {

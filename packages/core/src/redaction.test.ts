@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { redactPullRequestContext, redactRepoIndex, redactText } from "./redaction.js";
+import {
+  MAX_REPO_INVENTORY_COVERAGE_NOTE_CHARS,
+  redactPullRequestContext,
+  redactRepoIndex,
+  redactText
+} from "./redaction.js";
 import type { PullRequestContext, RepoIndex } from "./types.js";
 
 describe("redactText", () => {
@@ -83,6 +88,37 @@ describe("redactText", () => {
     expect(serialized).toContain("[REDACTED_REPO_ROOT]");
     expect(serialized).not.toContain("customer-alice");
     expect(serialized).not.toContain(secret);
+  });
+
+  it("clones, redacts, and bounds repository inventory coverage notes", () => {
+    const root = "/Users/alice/Customers/acme-private-app";
+    const secret = ["sk", "test", "abcdefghijklmnopqrstuvwxyz"].join("_");
+    const repoIndex: RepoIndex = {
+      root,
+      files: ["src/app.ts"],
+      fileInventoryCoverage: {
+        maxFiles: 1,
+        includedFiles: 1,
+        complete: false,
+        note: `root=${root}; token=${secret}; ${"detail ".repeat(400)}`
+      },
+      manifests: {},
+      frameworks: [],
+      routes: [],
+      components: [],
+      tests: [],
+      configFiles: [],
+      integrationHints: []
+    };
+
+    const safe = redactRepoIndex(repoIndex);
+
+    expect(safe.fileInventoryCoverage).not.toBe(repoIndex.fileInventoryCoverage);
+    expect(safe.fileInventoryCoverage?.note).toContain("[REDACTED_REPO_ROOT]");
+    expect(safe.fileInventoryCoverage?.note).toContain("[REDACTED_SECRET]");
+    expect(safe.fileInventoryCoverage?.note?.length).toBeLessThanOrEqual(MAX_REPO_INVENTORY_COVERAGE_NOTE_CHARS);
+    expect(JSON.stringify(safe.fileInventoryCoverage)).not.toContain(root);
+    expect(JSON.stringify(safe.fileInventoryCoverage)).not.toContain(secret);
   });
 
   it("redacts JSON-escaped Windows roots without relying on path casing", () => {

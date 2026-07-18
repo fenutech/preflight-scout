@@ -37,6 +37,7 @@ describe("indexRepository", () => {
 
     expect(index.files).toEqual(["one.ts", "two.ts"]);
     expect(index.fileInventoryCoverage).toEqual({
+      state: "known",
       complete: true,
       includedFiles: 2,
       maxFiles: 2

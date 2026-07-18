@@ -347,6 +347,12 @@ describe("writeInitialContract", () => {
     repoIndex.files.push(".env.customer-alice", ".preflight-scout/auth/customer-alice.json");
     repoIndex.manifests["package.json"] += `\nworkspace=${dir}`;
     repoIndex.manifests[".env.customer-alice"] = `TOKEN=${secret}`;
+    repoIndex.fileInventoryCoverage = {
+      maxFiles: repoIndex.files.length,
+      includedFiles: repoIndex.files.length,
+      complete: false,
+      note: `root=${dir}; token=${secret}; ${"detail ".repeat(400)}`
+    };
     let prompt = "";
     const llm = {
       async completeJson(messages: unknown) {
@@ -364,6 +370,40 @@ describe("writeInitialContract", () => {
     expect(prompt).not.toContain(dir);
     expect(prompt).not.toContain("customer-alice");
     expect(prompt).not.toContain(secret);
+  });
+
+  it("marks missing repository inventory coverage as unknown in the init prompt", async () => {
+    const repoIndex: RepoIndex = {
+      root: dir,
+      files: ["src/app.ts"],
+      manifests: {},
+      frameworks: [],
+      routes: [],
+      components: [],
+      tests: [],
+      configFiles: [],
+      integrationHints: []
+    };
+    let prompt = "";
+    const llm = {
+      async completeJson(messages: unknown) {
+        prompt = JSON.stringify(messages);
+        return contract;
+      }
+    };
+
+    await writeInitialContract(dir, repoIndex, llm);
+
+    const serializedMessages = JSON.parse(prompt) as Array<{ role: string; content: string }>;
+    const userMessage = serializedMessages.find((message) => message.role === "user")?.content ?? "{}";
+    const payload = JSON.parse(userMessage) as { repoIndex: RepoIndex };
+    expect(payload.repoIndex.fileInventoryCoverage).toMatchObject({
+      state: "unknown",
+      complete: false,
+      includedFiles: 1
+    });
+    expect(payload.repoIndex.fileInventoryCoverage?.note).toContain("metadata is unavailable");
+    expect(payload.repoIndex.fileInventoryCoverage).not.toHaveProperty("maxFiles");
   });
 
   it.skipIf(process.platform === "win32")("refuses to read or write contract files through a symlinked .preflight-scout directory", async () => {

@@ -4,7 +4,7 @@ import { promises as fs } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { createTrustedGit, type TrustedGit } from "./trusted-git.js";
-import type { RepoFileInventoryCoverage } from "./types.js";
+import type { KnownRepoFileInventoryCoverage } from "./types.js";
 
 const DEFAULT_IGNORED_SEGMENTS = new Set([
   ".git",
@@ -79,7 +79,7 @@ export async function walkFiles(root: string, options: { maxFiles?: number } = {
 
 export interface WalkFilesResult {
   files: string[];
-  coverage: RepoFileInventoryCoverage;
+  coverage: KnownRepoFileInventoryCoverage;
 }
 
 export async function walkFilesWithCoverage(root: string, options: { maxFiles?: number } = {}): Promise<WalkFilesResult> {
@@ -96,6 +96,7 @@ export async function walkFilesWithCoverage(root: string, options: { maxFiles?: 
   return {
     files: result.files,
     coverage: {
+      state: "known",
       maxFiles,
       includedFiles: result.files.length,
       complete: !result.truncated,
