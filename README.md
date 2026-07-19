@@ -1,19 +1,15 @@
-<p align="center">
-  <a href="https://preflightscout.com">
-    <img src="apps/site/public/brand/preflight-scout-mark.png" width="96" height="96" alt="Preflight Scout logo">
-  </a>
-</p>
+# Preflight Scout — Release QA for coding agents
 
-<h1 align="center">Preflight Scout</h1>
-
-<p align="center"><strong>Release QA for coding agents.</strong></p>
+<a href="https://preflightscout.com">
+  <img src="apps/site/public/opengraph-image.png" alt="Preflight Scout — turn a pull-request diff into focused release checks and reviewable evidence">
+</a>
 
 <p align="center">
-  <a href="https://github.com/fenutech/preflight-scout/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/fenutech/preflight-scout/actions/workflows/ci.yml/badge.svg?branch=main"></a>
-  <a href="https://www.npmjs.com/package/@preflight-scout/cli"><img alt="npm package" src="https://img.shields.io/npm/v/%40preflight-scout%2Fcli?logo=npm&amp;label=npm"></a>
-  <a href="https://github.com/fenutech/preflight-scout/releases/latest"><img alt="GitHub release" src="https://img.shields.io/github/v/release/fenutech/preflight-scout?sort=semver&amp;label=release"></a>
-  <a href="package.json"><img alt="Node.js 22.13 or newer" src="https://img.shields.io/badge/node-%3E%3D22.13-339933?logo=node.js&amp;logoColor=white"></a>
-  <a href="LICENSE"><img alt="License: AGPL-3.0-only" src="https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg"></a>
+  <a href="https://github.com/fenutech/preflight-scout/actions/workflows/ci.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/fenutech/preflight-scout/ci.yml?branch=main&amp;style=flat-square&amp;label=build"></a>
+  <a href="https://www.npmjs.com/package/@preflight-scout/cli"><img alt="npm package" src="https://img.shields.io/npm/v/%40preflight-scout%2Fcli?style=flat-square&amp;logo=npm&amp;label=npm"></a>
+  <a href="https://github.com/fenutech/preflight-scout/releases/latest"><img alt="GitHub release" src="https://img.shields.io/github/v/release/fenutech/preflight-scout?sort=semver&amp;style=flat-square&amp;label=release"></a>
+  <a href="package.json"><img alt="Node.js 22.13 or newer" src="https://img.shields.io/badge/node-%3E%3D22.13-339933?style=flat-square&amp;logo=node.js&amp;logoColor=white"></a>
+  <a href="LICENSE"><img alt="License: AGPL-3.0-only" src="https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg?style=flat-square"></a>
 </p>
 
 <p align="center">
