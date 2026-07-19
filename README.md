@@ -1,18 +1,41 @@
-# Preflight Scout
+<p align="center">
+  <a href="https://preflightscout.com">
+    <img src="apps/site/public/brand/preflight-scout-mark.png" width="96" height="96" alt="Preflight Scout logo">
+  </a>
+</p>
 
-[preflightscout.com](https://preflightscout.com) · [Installation](https://preflightscout.com/install/) · [Example report](https://preflightscout.com/example-report/) · [Security](https://preflightscout.com/security/)
+<h1 align="center">Preflight Scout</h1>
 
-Preflight Scout helps a coding agent check a pull request before release. It
-reads the diff, plans a small set of manual and browser checks, runs the checks
-you approve, and saves the evidence for you to review.
+<p align="center"><strong>Release QA for coding agents.</strong></p>
 
-This is alpha software. Use it on local, preview, or staging environments with
-test accounts, and review the plan and results before shipping.
+<p align="center">
+  <a href="https://github.com/fenutech/preflight-scout/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/fenutech/preflight-scout/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <a href="https://www.npmjs.com/package/@preflight-scout/cli"><img alt="npm package" src="https://img.shields.io/npm/v/%40preflight-scout%2Fcli?logo=npm&amp;label=npm"></a>
+  <a href="https://github.com/fenutech/preflight-scout/releases/latest"><img alt="GitHub release" src="https://img.shields.io/github/v/release/fenutech/preflight-scout?sort=semver&amp;label=release"></a>
+  <a href="package.json"><img alt="Node.js 22.13 or newer" src="https://img.shields.io/badge/node-%3E%3D22.13-339933?logo=node.js&amp;logoColor=white"></a>
+  <a href="LICENSE"><img alt="License: AGPL-3.0-only" src="https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg"></a>
+</p>
+
+<p align="center">
+  <a href="https://preflightscout.com">Website</a> ·
+  <a href="https://preflightscout.com/install/">Installation</a> ·
+  <a href="https://preflightscout.com/example-report/">Example report</a> ·
+  <a href="https://preflightscout.com/security/">Security</a>
+</p>
+
+Preflight Scout turns a pull-request diff into focused manual checks and
+reviewed browser missions. It writes reports and evidence locally so you can
+inspect the result before shipping.
+
+> [!IMPORTANT]
+> Preflight Scout is public alpha software. Use test accounts on local, preview,
+> or staging targets. Review each browser mission before it runs and inspect the
+> results before shipping.
 
 Built and maintained by [Andrea Fenu](https://github.com/anfen93) at
 [Fenutech](https://fenutech.com).
 
-See the [illustrative sample report](examples/sample-report/report.md), its
+**See the output:** [illustrative sample report](examples/sample-report/report.md), its
 [full HTML view](examples/sample-report/report.html), and its
 [fixture disclosure](examples/sample-report/README.md) for the evidence shape.
 
