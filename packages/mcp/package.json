@@ -37,7 +37,7 @@
     "prepublishOnly": "node ../../scripts/package-build-integrity.mjs verify"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@preflight-scout/core": "workspace:*"
   },
   "devDependencies": {
