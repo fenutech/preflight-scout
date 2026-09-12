@@ -1,6 +1,6 @@
 # Providers and security
 
-The OpenAI and Codex policy below is an unreleased source change, verified against official OpenAI documentation on 2026-09-12. Published 0.1.6 keeps its previous defaults. Other provider contracts retain their 2026-07-13 verification. First-party models can be overridden with `PREFLIGHT_SCOUT_MODEL`. OpenAI-compatible gateways require `PREFLIGHT_SCOUT_MODEL` because their model identifiers are provider-specific.
+The OpenAI and Codex policy below applies to Preflight Scout 0.1.7 and was verified against official OpenAI documentation on 2026-09-12. Installed 0.1.6 packages keep their previous defaults. Other provider contracts retain their 2026-07-13 verification. First-party models can be overridden with `PREFLIGHT_SCOUT_MODEL`. OpenAI-compatible gateways require `PREFLIGHT_SCOUT_MODEL` because their model identifiers are provider-specific.
 
 ## Current defaults
 

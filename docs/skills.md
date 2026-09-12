@@ -161,13 +161,13 @@ local repository and browser access.
 
 Requirements: Node.js 22.13 or newer. For users and agents, prefer the released
 npm package. Because this source may be visible before publication, first
-confirm that the official `v0.1.6` release and the live npm registry both list
-`@preflight-scout/cli@0.1.6`. If either is missing, skip this install and use the
+confirm that the official `v0.1.7` release and the live npm registry both list
+`@preflight-scout/cli@0.1.7`. If either is missing, skip this install and use the
 source path below.
 
 ```bash
-npm view @preflight-scout/cli@0.1.6 version --registry=https://registry.npmjs.org/
-npm install --global @preflight-scout/cli@0.1.6 --registry=https://registry.npmjs.org/
+npm view @preflight-scout/cli@0.1.7 version --registry=https://registry.npmjs.org/
+npm install --global @preflight-scout/cli@0.1.7 --registry=https://registry.npmjs.org/
 preflight-scout install-browser
 preflight-scout --version
 ```
@@ -177,7 +177,7 @@ download during npm `postinstall`. For a quick trial after the same release
 checks:
 
 ```bash
-npm exec --yes --registry=https://registry.npmjs.org/ --package=@preflight-scout/cli@0.1.6 -- preflight-scout --help
+npm exec --yes --registry=https://registry.npmjs.org/ --package=@preflight-scout/cli@0.1.7 -- preflight-scout --help
 ```
 
 That command uses an ephemeral cached environment. It is not durable enough
@@ -222,12 +222,12 @@ The released CLI and marketplace plugin use the same version. Before a full
 agent-operated run, compare the installed pair with npm:
 
 ```bash
-preflight-scout update-check --skill-version 0.1.6
+preflight-scout update-check --skill-version 0.1.7
 ```
 
 The `0.1.0` CLI does not have this command. To bootstrap the first update,
-confirm the GitHub `v0.1.6` release and npm package both exist, install the exact
-`@preflight-scout/cli@0.1.6` package from [Install the CLI](#install-the-cli),
+confirm the GitHub `v0.1.7` release and npm package both exist, install the exact
+`@preflight-scout/cli@0.1.7` package from [Install the CLI](#install-the-cli),
 refresh the plugin, restart the client, and then run `update-check`.
 
 The command is read-only. It contacts only the public npm registry, does not
@@ -350,10 +350,10 @@ preflight-scout analyze --base origin/main --head HEAD --open-report
 
 Export the provider in the current task shell or repeat it for each command;
 a one-command assignment does not configure subsequent commands. Respect the
-operator's existing provider policy. Published 0.1.6 prints the full inventory
-for `init --dry-run`: redirect it to a private local file and inspect selected
-fields. Source builds after 0.1.6 print a compact summary and offer
-`--dry-run --full-index` only when the full inventory is needed.
+operator's existing provider policy. In 0.1.7, `init --dry-run` prints a compact
+summary and offers `--dry-run --full-index` only when the full inventory is
+needed. Installed 0.1.6 packages print the full inventory: redirect it to a
+private local file and inspect selected fields.
 
 Add `--mcp --agent codex` or `--mcp --agent claude` to `doctor` before
 delegating browser execution. Configure an app target and disposable test
@@ -367,8 +367,8 @@ deterministic same-origin Playwright boundary.
 - Keep `skills/preflight-scout/` as the only source of truth.
 - Keep the required `agents/openai.yaml` metadata additive so Claude can ignore
   it safely while Codex gets the richer display information.
-- Respect operator model and reasoning settings. Source builds after 0.1.6
-  default OpenAI and Codex to Astra with max reasoning; the installed 0.1.6
+- Respect operator model and reasoning settings. Version 0.1.7 defaults
+  OpenAI and Codex to Astra with max reasoning; the installed 0.1.6
   release keeps its previous behavior. Keep the model defaults and override
   instructions aligned with the [provider guide](providers-and-security.md).
 - Never turn planned checks into claimed results.
