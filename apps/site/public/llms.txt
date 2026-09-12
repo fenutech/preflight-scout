@@ -1,0 +1,19 @@
+# Preflight Scout
+
+> Release QA for coding agents: turn a Git diff into a focused test plan, reviewed browser missions, and local evidence. Public alpha; use local, preview, or staging targets with test accounts.
+
+## Start here
+
+- [Set up this agent](https://preflightscout.com/agent-setup/prompt.md): perform the appropriate CLI, browser, and skill installation, reuse existing setup, and verify the exact release pair.
+- [Agent guide](https://preflightscout.com/agent-guide.md): compact plain Markdown onboarding, exact-analysis reuse, context discipline, and troubleshooting. Read this first.
+- [Install](https://preflightscout.com/install/): version-pinned CLI and Codex/Claude Code plugin installation. Verify the matching GitHub release and npm package before installing.
+- [Released Agent Skill](https://raw.githubusercontent.com/fenutech/preflight-scout/plugin-stable/skills/preflight-scout/SKILL.md): the released operating workflow. Match the installed CLI to the skill's compatibility version.
+
+## Read only as needed
+
+- [Security](https://preflightscout.com/security/): model inputs, local secrets, approvals, browser boundaries, and evidence.
+- [Example report](https://preflightscout.com/example-report/): illustrative output, not a live result for your repository.
+- [Source documentation](https://github.com/fenutech/preflight-scout/tree/main/docs): provider configuration, delegated agents, diagnostics, and artifacts. Main can be ahead of the installed release; use the matching version tag when behavior differs.
+- [Public repository](https://github.com/fenutech/preflight-scout): implementation, releases, and issue templates. Never include private source, credentials, auth state, or raw private session logs in public reports.
+
+This index is an optional discovery aid, not an execution permission or a guarantee that an agent will discover or follow it. Follow the user's scope and the installed version's instructions. A plan, an empty mission list, or a completed process does not establish passing browser evidence.

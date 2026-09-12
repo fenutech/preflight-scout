@@ -1,8 +1,9 @@
-import { CircleIcon, DownloadSimpleIcon, GithubLogoIcon } from "@phosphor-icons/react/ssr";
+import { CircleIcon } from "@phosphor-icons/react/ssr";
+import { AgentSetup } from "@/components/AgentSetup";
 import { CommandLine } from "@/components/CopyCommand";
 import { InstrumentReport } from "@/components/InstrumentReport";
 import { WorkflowSteps } from "@/components/WorkflowSteps";
-import { GITHUB_URL, HOME_STRUCTURED_DATA, RELEASE_VERSION } from "@/lib/site";
+import { HOME_STRUCTURED_DATA, RELEASE_VERSION } from "@/lib/site";
 
 const cliCommand = `npm install --global @preflight-scout/cli@${RELEASE_VERSION} --registry=https://registry.npmjs.org/\npreflight-scout install-browser`;
 const codexSkillCommand = "codex plugin marketplace add fenutech/preflight-scout --ref plugin-stable\ncodex plugin add preflight-scout@preflight-scout";
@@ -13,15 +14,13 @@ export default function HomePage() {
     <>
       <section className="hero-section">
         <div className="hero-copy">
-          <p className="eyebrow">RELEASE QA FOR CODING AGENTS</p>
-          <h1>Give your coding agent a real release check.</h1>
-          <p className="hero-lede">Preflight Scout reads the diff, lists affected user flows, runs the browser checks you approve, and saves the evidence for review.</p>
-          <div className="hero-actions">
-            <a className="button primary" href="/install/"><DownloadSimpleIcon size={28} weight="bold" aria-hidden="true" />Install the alpha</a>
-            <a className="button secondary" href={GITHUB_URL}><GithubLogoIcon size={28} weight="fill" aria-hidden="true" />View on GitHub</a>
-          </div>
-          <div className="trust-line" aria-label="Open source, runs in your repository, you review every result">
-            <span>Open source</span><CircleIcon size={7} weight="fill" aria-hidden="true" /><span>Runs in your repository</span><CircleIcon size={7} weight="fill" aria-hidden="true" /><span>You review every result</span>
+          <p className="eyebrow">RELEASE VERIFICATION FOR CODING AGENTS</p>
+          <h1>Turn “done” into verifiable evidence.</h1>
+          <p className="hero-lede">Scout turns a diff into focused checks, runs them within explicit execution boundaries, and gives your agents, CI, and reviewers the evidence for release.</p>
+          <p className="agent-entry">For AI agents: <a href="/llms.txt">preflightscout.com/llms.txt</a></p>
+          <AgentSetup />
+          <div className="trust-line" aria-label="Open source, runs in your repository, explicit execution boundaries">
+            <span>Open source</span><CircleIcon size={7} weight="fill" aria-hidden="true" /><span>Runs in your repository</span><CircleIcon size={7} weight="fill" aria-hidden="true" /><span>Explicit execution boundaries</span>
           </div>
           <p className="release-availability-note">Before running the commands, confirm <a href={`https://github.com/fenutech/preflight-scout/releases/tag/v${RELEASE_VERSION}`}>GitHub release v{RELEASE_VERSION}</a> and <a href={`https://www.npmjs.com/package/@preflight-scout/cli/v/${RELEASE_VERSION}`}>the matching npm package</a> both exist. If either is missing, use the source path on the <a href="/install/">install page</a>.</p>
           <ol className="quick-install" aria-label="Quick installation">

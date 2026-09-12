@@ -12,6 +12,7 @@ import {
   renderAgentPrompt,
   renderAuthLoginPrompt,
   resolveAgentCommand,
+  runAgentAuthLogin,
   runAgentCapabilityProbe,
   runAgentExecution
 } from "./index.js";
@@ -159,6 +160,36 @@ describe("agent capability probe", () => {
 });
 
 describe("resolveAgentCommand", () => {
+  it.each(["codex", "claude", "gemini"] as const)("uses the supplied environment for %s model policy without host fallback", (kind) => {
+    vi.stubEnv("PREFLIGHT_SCOUT_EXEC_MODEL", "host-only-model");
+    vi.stubEnv("PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT", "high");
+    try {
+      const configured = resolveAgentCommand({ kind, env: {
+        PREFLIGHT_SCOUT_EXEC_MODEL: "reviewed-provider-model",
+        PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT: "medium"
+      } }, "prompt");
+      const modelFlag = kind === "claude" ? "--model" : "-m";
+      expect(configured.args[configured.args.indexOf(modelFlag) + 1]).toBe("reviewed-provider-model");
+      if (kind === "claude") expect(configured.args).toEqual(expect.arrayContaining(["--effort", "medium"]));
+      if (kind === "codex") expect(configured.args.some((arg) => /^model_reasoning_effort=["']medium["']$/.test(arg))).toBe(true);
+
+      const inherited = resolveAgentCommand({ kind, env: {} }, "prompt");
+      expect(inherited.args).not.toContain("host-only-model");
+      if (kind === "codex") expect(inherited.args).toContain("gpt-6-astra");
+      else expect(inherited.args).not.toContain(modelFlag);
+
+      const defaults = resolveAgentCommand({ kind, env: {
+        PREFLIGHT_SCOUT_EXEC_MODEL: "default",
+        PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT: "default"
+      } }, "prompt");
+      expect(defaults.args).not.toContain(modelFlag);
+      expect(defaults.args).not.toContain("--effort");
+      expect(defaults.args.some((arg) => arg.startsWith("model_reasoning_effort="))).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("passes built-in agent prompts over stdin by default", () => {
     const command = resolveAgentCommand({
       kind: "codex",
@@ -236,6 +267,65 @@ describe("resolveAgentCommand", () => {
       else process.env.PREFLIGHT_SCOUT_EXEC_MODEL = previousModel;
       if (previousEffort === undefined) delete process.env.PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT;
       else process.env.PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT = previousEffort;
+    }
+  });
+});
+
+describe("delegated entrypoint model environment", () => {
+  it.each([
+    ["execution", "reviewed-model"], ["auth", "reviewed-model"], ["probe", "reviewed-model"],
+    ["execution", "default"], ["auth", "default"], ["probe", "default"]
+  ] as const)("uses the supplied environment for %s with %s model", async (entrypoint, model) => {
+    const temp = await mkdtemp(path.join(tmpdir(), "preflight-scout-model-env-"));
+    const target = path.join(temp, "target");
+    const capture = path.join(temp, "capture.cjs");
+    const executable = process.platform === "win32" ? path.join(temp, "capture.cmd") : capture;
+    vi.stubEnv("PREFLIGHT_SCOUT_EXEC_MODEL", "host-only-model");
+    vi.stubEnv("PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT", "max");
+    try {
+      await mkdir(target);
+      await writeFile(capture, [
+        `#!${process.execPath}`,
+        "process.stdin.resume();",
+        "process.stdin.on('end', () => console.log(JSON.stringify({ args: process.argv.slice(2), keys: Object.keys(process.env) })));",
+        ""
+      ].join("\n"));
+      if (process.platform === "win32") {
+        await writeFile(executable, `@echo off\r\n"${process.execPath}" "${capture}" %*\r\n`);
+      } else await chmod(executable, 0o755);
+      const options = {
+        kind: "codex" as const,
+        command: executable,
+        cwd: target,
+        targetRoot: target,
+        timeoutMs: 5000,
+        streamOutput: false,
+        env: {
+          ...process.env,
+          PREFLIGHT_SCOUT_EXEC_MODEL: model,
+          PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT: model === "default" ? "default" : "high",
+          AWS_SECRET_ACCESS_KEY: "unrelated-fixture-secret"
+        }
+      };
+      const result = entrypoint === "execution"
+        ? await runAgentExecution({ ...options, appUrl: "https://preview.example.com", contract, mission })
+        : entrypoint === "auth"
+          ? await runAgentAuthLogin({ ...options, appUrl: "https://preview.example.com", role: "qa_user", signedInTarget: "testid=account", storageStateOutput: path.join(temp, "state.json"), evidenceDir: target })
+          : await runAgentCapabilityProbe(options);
+      const actual = JSON.parse(result.stdout) as { args: string[]; keys: string[] };
+      expect(actual.args).not.toContain("host-only-model");
+      if (model === "default") expect(actual.args).not.toContain("-m");
+      else expect(actual.args).toEqual(expect.arrayContaining(["-m", model]));
+      const effort = actual.args.find((arg) => arg.startsWith("model_reasoning_effort="));
+      if (entrypoint === "probe") expect(effort).toMatch(/^model_reasoning_effort=["']low["']$/);
+      else if (model === "default") expect(effort).toBeUndefined();
+      else expect(effort).toMatch(/^model_reasoning_effort=["']high["']$/);
+      expect(actual.keys).not.toContain("PREFLIGHT_SCOUT_EXEC_MODEL");
+      expect(actual.keys).not.toContain("PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT");
+      expect(actual.keys).not.toContain("AWS_SECRET_ACCESS_KEY");
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(temp, { recursive: true, force: true });
     }
   });
 });

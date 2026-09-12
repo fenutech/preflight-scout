@@ -6,6 +6,8 @@ import path from "node:path";
 import { z, type ZodType } from "zod";
 import * as processTree from "./process-tree.js";
 import { redactText } from "./redaction.js";
+import { DEFAULT_OPENAI_MODEL, resolveExecModelSettings, resolveReasoningEffort } from "./model-policy.js";
+export { DEFAULT_OPENAI_MODEL } from "./model-policy.js";
 
 export interface LLMImageAttachment {
   type: "image";
@@ -34,7 +36,6 @@ export type LLMProvider = "openai" | "openai-compatible" | "anthropic" | "gemini
 
 type JsonSchema = Record<string, unknown>;
 
-export const DEFAULT_OPENAI_MODEL = "gpt-5.6";
 export const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5";
 export const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
 
@@ -66,6 +67,7 @@ export class OpenAICompatibleClient implements LLMClient {
       baseUrl?: string;
       structuredMode?: "json_schema" | "json_object";
       apiMode?: "responses" | "chat_completions";
+      reasoningEffort?: string;
       timeoutMs?: number;
     }
   ) {}
@@ -87,6 +89,7 @@ export class OpenAICompatibleClient implements LLMClient {
       },
       body: JSON.stringify({
         model: this.options.model,
+        ...(this.options.reasoningEffort ? { reasoning_effort: this.options.reasoningEffort } : {}),
         response_format: this.responseFormat(options),
         messages: await Promise.all(messages.map(toOpenAIMessage))
       })
@@ -114,6 +117,7 @@ export class OpenAICompatibleClient implements LLMClient {
       },
       body: JSON.stringify({
         model: this.options.model,
+        ...(this.options.reasoningEffort ? { reasoning: { effort: this.options.reasoningEffort } } : {}),
         ...(instructions ? { instructions } : {}),
         input,
         store: false,
@@ -320,8 +324,7 @@ export function createDefaultLLMFromEnv(): LLMClient | undefined {
       command: process.env.PREFLIGHT_SCOUT_EXEC_COMMAND,
       args: process.env.PREFLIGHT_SCOUT_EXEC_ARGS ? JSON.parse(process.env.PREFLIGHT_SCOUT_EXEC_ARGS) as string[] : undefined,
       cwd: process.env.PREFLIGHT_SCOUT_EXEC_CWD,
-      model: process.env.PREFLIGHT_SCOUT_EXEC_MODEL ?? process.env.PREFLIGHT_SCOUT_MODEL,
-      reasoningEffort: process.env.PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT ?? process.env.PREFLIGHT_SCOUT_REASONING_EFFORT,
+      ...resolveExecModelSettings(provider.replace("-exec", "") as "codex" | "claude" | "gemini"),
       timeoutMs: process.env.PREFLIGHT_SCOUT_EXEC_TIMEOUT_MS ? Number(process.env.PREFLIGHT_SCOUT_EXEC_TIMEOUT_MS) : undefined
     });
   }
@@ -363,6 +366,7 @@ export function createDefaultLLMFromEnv(): LLMClient | undefined {
       baseUrl: process.env.PREFLIGHT_SCOUT_OPENAI_BASE_URL,
       structuredMode: "json_object",
       apiMode: "chat_completions",
+      reasoningEffort: resolveReasoningEffort(process.env.PREFLIGHT_SCOUT_REASONING_EFFORT),
       timeoutMs
     });
   }
@@ -372,6 +376,7 @@ export function createDefaultLLMFromEnv(): LLMClient | undefined {
   return new OpenAICompatibleClient({
     apiKey,
     model: configuredModel() ?? DEFAULT_OPENAI_MODEL,
+    reasoningEffort: resolveReasoningEffort(process.env.PREFLIGHT_SCOUT_REASONING_EFFORT, (configuredModel() ?? DEFAULT_OPENAI_MODEL) === DEFAULT_OPENAI_MODEL),
     baseUrl: process.env.PREFLIGHT_SCOUT_OPENAI_BASE_URL,
     structuredMode: "json_schema",
     apiMode: "responses",
@@ -1258,6 +1263,13 @@ async function completeRawWithRetry(
       return await completeRaw(messages);
     } catch (error) {
       lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (/context[_ -](?:length[_ -])?exceeded|context window|maximum context length|prompt (?:is )?too (?:long|large)|input (?:is )?too (?:long|large)/i.test(message)) {
+        throw new Error(`Context limit reached. Reduce the reviewed diff, then create and review a fresh analysis. The unchanged prompt was not retried.\n${boundedRedactedDiagnostic(error, MAX_PROVIDER_DIAGNOSTIC_CHARS)}`);
+      }
+      // Authentication, invalid requests/models and missing executables cannot
+      // recover by immediately replaying the exact same request.
+      if (/request failed with HTTP (?:400|401|403|404|413|422)\b|failed to start \((?:ENOENT|EACCES)\)|requires a newer version of Codex|model_not_found/.test(message)) throw error;
       if (attempt < maxProviderAttempts) await new Promise((resolve) => setTimeout(resolve, Math.min(250 * attempt, 1000)));
     }
   }

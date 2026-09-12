@@ -150,6 +150,60 @@ describe("redactText", () => {
     expect(serialized).not.toContain(secret);
   });
 
+  it("refreshes environment secrets between inventory operations and public text calls", () => {
+    const envName = "PREFLIGHT_SCOUT_REDACTION_ROTATION_TOKEN";
+    const previous = process.env[envName];
+    const firstSecret = "first-inventory-secret-value";
+    const secondSecret = "second-inventory-secret-value";
+    const input = `${firstSecret} ${secondSecret}`;
+    const repoIndex: RepoIndex = {
+      root: ".",
+      files: [`src/${firstSecret}.ts`, `src/${secondSecret}.ts`],
+      manifests: { "package.json": input },
+      frameworks: [], routes: [], components: [], tests: [], configFiles: [], integrationHints: []
+    };
+
+    try {
+      process.env[envName] = firstSecret;
+      const first = redactRepoIndex(repoIndex);
+      expect(first.files).toEqual(["src/[REDACTED_ENV_SECRET].ts", `src/${secondSecret}.ts`]);
+      expect(first.manifests["package.json"]).toBe(`[REDACTED_ENV_SECRET] ${secondSecret}`);
+      expect(redactText(input)).toBe(`[REDACTED_ENV_SECRET] ${secondSecret}`);
+
+      process.env[envName] = secondSecret;
+      const second = redactRepoIndex(repoIndex);
+      expect(second.files).toEqual([`src/${firstSecret}.ts`, "src/[REDACTED_ENV_SECRET].ts"]);
+      expect(second.manifests["package.json"]).toBe(`${firstSecret} [REDACTED_ENV_SECRET]`);
+      expect(redactText(input)).toBe(`${firstSecret} [REDACTED_ENV_SECRET]`);
+    } finally {
+      if (previous === undefined) delete process.env[envName];
+      else process.env[envName] = previous;
+    }
+  });
+
+  it("keeps PEM parsing ahead of prepared inventory secrets that overlap a boundary", () => {
+    const envName = "PREFLIGHT_SCOUT_REDACTION_PEM_TOKEN";
+    const previous = process.env[envName];
+    const pem = [rsaPrivateKeyBoundary("BEGIN"), "sensitive-body", rsaPrivateKeyBoundary("END")].join("\n");
+    const repoIndex: RepoIndex = {
+      root: ".",
+      files: [],
+      manifests: { "package.json": `before\n${pem}\nafter` },
+      frameworks: [], routes: [], components: [], tests: [], configFiles: [],
+      integrationHints: ["RSA PRIVATE KEY"]
+    };
+
+    try {
+      process.env[envName] = "RSA PRIVATE KEY";
+      const safe = redactRepoIndex(repoIndex);
+      expect(safe.manifests["package.json"]).toBe("before\n[REDACTED_SECRET]\nafter");
+      expect(safe.integrationHints).toEqual(["[REDACTED_ENV_SECRET]"]);
+    } finally {
+      if (previous === undefined) delete process.env[envName];
+      else process.env[envName] = previous;
+    }
+  });
+
   it("clones, redacts, and bounds repository inventory coverage notes", () => {
     const root = "/Users/alice/Customers/acme-private-app";
     const secret = ["sk", "test", "abcdefghijklmnopqrstuvwxyz"].join("_");

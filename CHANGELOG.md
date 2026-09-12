@@ -6,6 +6,63 @@ All notable changes to Preflight Scout are documented here. This project follows
 
 ## [Unreleased]
 
+### Added
+
+- Agent onboarding through a stable plain-text website entry point, a focused
+  Markdown guide, and a copyable setup prompt. Instructions distinguish released
+  CLI/plugin versions from unreleased source behavior.
+- Site-wide response protection and raw HTTP checks keep Cloudflare email
+  obfuscation from corrupting installation commands and agent instructions.
+- Trusted parent-shell `PREFLIGHT_SCOUT_MAX_REPO_FILES` (1–250000) for a reviewed
+  inventory limit, plus explicit `init --dry-run --full-index` output.
+
+### Changed
+
+- Release validation requires real LLM-driven QA through a clean npm install
+  of the exact packed candidate, with source/artifact identity and inspected
+  evidence. Pack checks, dry runs, and mocked smoke tests remain supporting
+  checks; official stable publication keeps its existing protected workflow.
+- OpenAI and Codex execution default to `gpt-6-astra` with `max` reasoning.
+  Model and effort remain configurable; explicit local `default` values omit
+  either pin. Other providers keep their independent policies. Doctor reports
+  effective model settings and explains old-CLI model rejections.
+- Guidance makes standing task authorization explicit: agents can review and
+  execute within granted authority without routine human approval interruptions.
+  Evidence serves agents, CI, and human review. Existing permission enforcement
+  and machine-readable report statuses remain compatible.
+- Repository indexing defaults to 50000 paths, prioritizes root files, and reads
+  metadata in bounded batches. Normal init dry runs return a compact summary.
+- Impact and init prompts select bounded repository context. Changed-file
+  metadata comes before fairly shared patch excerpts, and mission planning
+  avoids duplicating raw patches while retaining a separate source selection for
+  exact routes, selectors, and constants. Coverage omissions remain explicit, including
+  partial per-file Git context, without treating successful browser checks as
+  proof of exhaustive repository review.
+
+### Fixed
+
+- Delegated agent model and reasoning settings respect the supplied execution
+  environment, preventing unrelated global settings from overriding caller policy.
+- Updated the site to Next.js 16.3.3, Vitest to 4.1.11, and vulnerable dependency
+  floors; both full and production audits report zero advisories at the
+  validation checkpoint.
+- Repository redaction prepares secret values once per synchronous inventory
+  operation, avoiding repeated environment scans on large repositories. Later
+  operations still read fresh secrets; PEM handling and replacement order remain
+  enforced.
+- The exact first reviewed navigation is executed through the normal policy and
+  origin checks and receives completion credit, avoiding duplicate navigation
+  and false uncovered-step failures. Later or different targets remain distinct.
+- Browser decisions receive deterministic reviewed-step progress and assertion
+  freshness, avoiding repeated successful assertions after the mission is ready
+  for final validation. The final evidence checks remain enforced.
+- Permanent provider and context-limit failures no longer replay an unchanged
+  request; transient failures retain bounded retries.
+- Agent instructions preserve exact run identity across context compaction,
+  explain provider environment persistence, and keep unsupported hidden metadata
+  checks in manual/static review rather than visible-DOM browser assertions.
+
+
 ## [0.1.6] - 2026-07-18
 
 ### Fixed

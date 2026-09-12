@@ -46,6 +46,9 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en" data-scroll-behavior="smooth" suppressHydrationWarning>
+      <head>
+        <link rel="alternate" type="text/markdown" href="/agent-guide.md" title="Preflight Scout agent guide" />
+      </head>
       <body>
         <a className="skip-link" href="#main-content">Skip to content</a>
         <div className="site-shell">

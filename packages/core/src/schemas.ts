@@ -84,7 +84,7 @@ export const ChangedFileSchema = z.object({
   deletions: z.number().int().nonnegative().max(100_000_000).optional(),
   patch: LongTextSchema.optional(),
   content: LongTextSchema.optional(),
-  contextStatus: z.enum(["included", "omitted_changed_file_limit", "omitted_total_budget"]).optional(),
+  contextStatus: z.enum(["included", "partial", "omitted_changed_file_limit", "omitted_total_budget"]).optional(),
   contextNote: TextSchema.optional()
 }).strict();
 

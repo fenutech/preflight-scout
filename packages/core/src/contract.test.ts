@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_CONTRACT, indexRepository, loadContract, resolveTargetUrl, writeInitialContract, type LLMMessage, type QAContract } from "./index.js";
+import { DEFAULT_CONTRACT, draftContractWithLLM, indexRepository, loadContract, resolveTargetUrl, writeInitialContract, type LLMMessage, type QAContract } from "./index.js";
 
 const contract: QAContract = {
   app: {
@@ -436,7 +436,7 @@ describe("writeInitialContract", () => {
     expect(loaded.defaults?.outputDir).toBe(".preflight-scout/runs/latest");
   });
 
-  it("preserves a human-supplied init output directory", async () => {
+  it("preserves a caller-supplied init output directory", async () => {
     const repoIndex = await indexRepository(dir);
 
     const written = await writeInitialContract(dir, repoIndex, undefined, {
@@ -482,6 +482,20 @@ describe("writeInitialContract", () => {
     expect(prompt).not.toContain(dir);
     expect(prompt).not.toContain("customer-alice");
     expect(prompt).not.toContain(secret);
+  });
+
+  it("bounds init context for a large repository and preserves deterministic uncertainty", async () => {
+    const files = Array.from({ length: 50000 }, (_, index) => `packages/area-${index}/long-directory-name/source.ts`);
+    let messages: LLMMessage[] = [];
+    const result = await draftContractWithLLM({ root: dir, files, fileInventoryCoverage: { complete: true, includedFiles: files.length, maxFiles: 50000 }, manifests: { "package.json": '{"name":"large"}' }, frameworks: [], routes: [], components: [], tests: [], configFiles: [], integrationHints: [] }, {
+      async completeJson(input: LLMMessage[]) { messages = input; return structuredClone(contract); }
+    });
+    const prompt = messages.find((message) => message.role === "user")!.content;
+    const inventory = JSON.parse(prompt).repositoryInventory;
+    expect(prompt.length).toBeLessThan(34 * 1024);
+    expect(inventory.promptCoverage).toMatchObject({ complete: false, totalEntries: 50001 });
+    expect(inventory.manifests["package.json"]).toContain("large");
+    expect(result.unknowns).toContain("Repository context was omitted or truncated in the init prompt; confirm product details against source.");
   });
 
   it("marks missing repository inventory coverage as unknown in the init prompt", async () => {

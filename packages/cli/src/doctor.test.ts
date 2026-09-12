@@ -208,6 +208,49 @@ describe("doctor", () => {
     expect(checkLlmProvider()).toMatchObject({ status, message: expect.stringContaining(message) });
   });
 
+  it("reports effective Codex model controls without claiming runtime compatibility", () => {
+    process.env.PREFLIGHT_SCOUT_LLM_PROVIDER = "codex-exec";
+    for (const key of ["PREFLIGHT_SCOUT_MODEL", "PREFLIGHT_SCOUT_EXEC_MODEL", "PREFLIGHT_SCOUT_REASONING_EFFORT", "PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT"]) delete process.env[key];
+    expect(checkLlmProvider().detail).toContain("Model: gpt-6-astra; reasoning effort: max");
+    process.env.PREFLIGHT_SCOUT_EXEC_MODEL = "default";
+    expect(checkLlmProvider().detail).toContain("Model: CLI default; reasoning effort: CLI default");
+    process.env.PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT = "bad\nsetting";
+    expect(checkLlmProvider().status).toBe("fail");
+  });
+
+  it("rejects oversized local model settings without dumping them into agent context", () => {
+    process.env.PREFLIGHT_SCOUT_LLM_PROVIDER = "codex-exec";
+    process.env.PREFLIGHT_SCOUT_EXEC_MODEL = "x".repeat(100000);
+    const result = checkLlmProvider();
+    expect(result.status).toBe("fail");
+    expect(JSON.stringify(result).length).toBeLessThan(512);
+  });
+
+  it("bounds API model diagnostics after redaction", () => {
+    process.env.PREFLIGHT_SCOUT_LLM_PROVIDER = "openai";
+    process.env.OPENAI_API_KEY = "test-provider-key";
+    process.env.PREFLIGHT_SCOUT_MODEL = "long-provider-model-".repeat(10000);
+    delete process.env.PREFLIGHT_SCOUT_REASONING_EFFORT;
+    const result = checkLlmProvider();
+    expect(result.status).toBe("pass");
+    expect(result.detail!.length).toBeLessThanOrEqual(512);
+    expect(result.detail).toContain("[model detail truncated]");
+  });
+
+  it("turns an old Codex model rejection into a concrete upgrade diagnostic", async () => {
+    const demo = await createGenericDemoRepo({ output: path.join(dir, "shop") });
+    process.env.PREFLIGHT_SCOUT_LLM_PROVIDER = "codex-exec";
+    const report = await runDoctor({
+      root: demo.root, timeoutMs: 100,
+      agent: "codex", agentCommand: process.execPath,
+      agentArgs: ["-e", "console.error('The selected model requires a newer version of Codex.'); process.exit(1)"],
+      checkBrowser: async () => undefined
+    });
+    const runtime = report.checks.find((check) => check.id === "delegated_agent_runtime");
+    expect(runtime).toMatchObject({ status: "fail", message: "The selected model requires a newer Codex CLI." });
+    expect(runtime?.detail).toContain("PREFLIGHT_SCOUT_EXEC_MODEL");
+  });
+
   it("reports and does not load a tracked local environment file", async () => {
     const demo = await createGenericDemoRepo({ output: path.join(dir, "shop") });
     await writeFile(path.join(demo.root, ".env.preflight-scout.local"), [

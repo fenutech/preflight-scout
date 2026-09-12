@@ -1,5 +1,5 @@
 import path from "node:path";
-import { readTextIfExists, walkFilesWithCoverage } from "./fs.js";
+import { MAX_REPOSITORY_FILES, readTextIfExists, walkFilesWithCoverage } from "./fs.js";
 import type { RepoIndex } from "./types.js";
 
 const MANIFEST_FILES = [
@@ -18,7 +18,12 @@ const MANIFEST_FILES = [
 ];
 
 export async function indexRepository(root: string, options: { maxFiles?: number } = {}): Promise<RepoIndex> {
-  const { files, coverage } = await walkFilesWithCoverage(root, options);
+  const envLimit = process.env.PREFLIGHT_SCOUT_MAX_REPO_FILES;
+  const maxFiles = options.maxFiles ?? (envLimit === undefined ? undefined : Number(envLimit));
+  if (envLimit !== undefined && options.maxFiles === undefined && (!/^[0-9]+$/.test(envLimit) || !Number.isSafeInteger(maxFiles) || maxFiles! < 1 || maxFiles! > MAX_REPOSITORY_FILES)) {
+    throw new Error(`PREFLIGHT_SCOUT_MAX_REPO_FILES must be an integer from 1 through ${MAX_REPOSITORY_FILES}.`);
+  }
+  const { files, coverage } = await walkFilesWithCoverage(root, { maxFiles });
   const manifests: Record<string, string> = {};
   for (const manifest of MANIFEST_FILES) {
     if (!files.includes(manifest)) continue;

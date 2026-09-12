@@ -67,13 +67,13 @@ export function renderPullRequestComment(input: PullRequestCommentInput): string
 }
 
 function formatReleaseDecision(status: HumanReportSummary["releaseDecision"]["status"]): string {
-  if (status === "ready_for_human_review") return "Ready for human review";
+  if (status === "ready_for_human_review") return "Ready for review";
   if (status === "needs_browser_evidence") return "Needs browser evidence";
   return "Do not ship yet";
 }
 
 function formatVerdict(verdict: HumanReportSummary["verdict"]): string {
-  if (verdict === "ready_for_human_review") return "Ready for human review";
+  if (verdict === "ready_for_human_review") return "Ready for review";
   if (verdict === "needs_attention") return "Needs attention before production";
   return "Checklist only, no browser evidence";
 }

@@ -4,8 +4,10 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   appendRequiredUnknown,
+  boundPullRequestForPrompt,
   createImpactMap,
   INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN,
+  INCOMPLETE_IMPACT_CONTEXT_UNKNOWN,
   MAX_IMPACT_PROMPT_CHARS
 } from "./impact-mapper.js";
 import type { LLMClient, LLMMessage, StructuredJsonOptions } from "./llm.js";
@@ -57,14 +59,70 @@ describe("impact prompt budgets", () => {
     const totalPromptChars = llm.messages.reduce((total, message) => total + message.content.length, 0);
     const payload = JSON.parse(userMessage) as any;
     expect(totalPromptChars).toBeLessThanOrEqual(MAX_IMPACT_PROMPT_CHARS);
-    expect(payload.pullRequest.files.length).toBeLessThan(pullRequest.files.length);
+    expect(payload.pullRequest.files).toHaveLength(pullRequest.files.length);
+    expect(payload.pullRequest.files.at(-1).path).toBe("src/feature-299.ts");
+    expect(payload.pullRequest.files.at(-1).patch).toContain("ppp");
     expect(payload.pullRequest.promptCoverage).toMatchObject({ complete: false, totalChangedFiles: 300 });
-    expect(payload.pullRequest.promptCoverage.omittedChangedFiles).toBeGreaterThan(0);
+    expect(payload.pullRequest.promptCoverage.omittedChangedFiles).toBe(0);
+    expect(payload.pullRequest.promptCoverage.truncatedContextFiles).toBe(300);
     expect(payload.pullRequest.contextCoverage.complete).toBe(false);
     expect(payload.repositoryInventory.promptCoverage.complete).toBe(false);
     expect(payload.repositoryInventory.promptCoverage.omittedEntries).toBeGreaterThan(0);
     expect(payload).not.toHaveProperty("repoIndex");
     expect(llm.messages.find((message) => message.role === "system")?.content).toContain("mean unclassified, not absent");
+  });
+
+  it("selects changed paths and sibling evidence near the end of a large inventory", async () => {
+    const llm = new CapturingImpactLLM([]);
+    const files = [...Array.from({ length: 8000 }, (_, index) => `a-archive/file-${index}.ts`), "z-product/checkout.ts", "z-product/checkout.test.ts"];
+    const result = await createImpactMap({
+      repoIndex: { root: ".", files, fileInventoryCoverage: { complete: true, includedFiles: files.length, maxFiles: 50000 }, manifests: {}, frameworks: [], routes: [], components: [], tests: [], configFiles: [], integrationHints: [] },
+      contract, pullRequest: { files: [{ path: "z-product/checkout.ts", status: "modified", patch: "+ changed" }] }, llm
+    });
+    const payload = JSON.parse(llm.messages.find((message) => message.role === "user")!.content);
+    expect(payload.repositoryInventory.files.slice(0, 2)).toEqual(["z-product/checkout.ts", "z-product/checkout.test.ts"]);
+    expect(result.unknowns).toContain(INCOMPLETE_IMPACT_CONTEXT_UNKNOWN);
+  });
+
+  it("counts escaped-string clipping and retains later metadata after an oversized path", async () => {
+    const llm = new CapturingImpactLLM([]);
+    const result = await createImpactMap({
+      repoIndex: { root: ".", files: [], fileInventoryCoverage: { complete: true, includedFiles: 0, maxFiles: 50000 }, manifests: {}, frameworks: [], routes: [], components: [], tests: [], configFiles: [], integrationHints: [] },
+      contract,
+      pullRequest: { files: [
+        { path: "x".repeat(110000), status: "modified" },
+        { path: "src/last.ts", status: "modified", patch: "\u0000\n\"".repeat(90000), content: "tail" }
+      ] }, llm
+    });
+    const payload = JSON.parse(llm.messages.find((message) => message.role === "user")!.content);
+    expect(payload.pullRequest.files).toHaveLength(1);
+    expect(payload.pullRequest.files[0].path).toBe("src/last.ts");
+    expect(payload.pullRequest.promptCoverage).toMatchObject({ complete: false, omittedChangedFiles: 1, truncatedContextFiles: 1 });
+    expect(llm.messages.reduce((sum, message) => sum + message.content.length, 0)).toBeLessThan(MAX_IMPACT_PROMPT_CHARS);
+    expect(result.unknowns).toContain(INCOMPLETE_IMPACT_CONTEXT_UNKNOWN);
+  });
+
+  it.each([0, 1000, 16 * 1024 - 1, 104 * 1024 + 1, Number.NaN, Number.POSITIVE_INFINITY])("rejects unsupported shared changed-file prompt budgets", (maxChars) => {
+    expect(() => boundPullRequestForPrompt({ files: [] }, maxChars)).toThrow("Changed-file prompt budget");
+  });
+
+  it("rejects an oversized contract before calling the provider rather than truncating policy", async () => {
+    const llm = new CapturingImpactLLM([]);
+    await expect(createImpactMap({
+      repoIndex: { root: ".", files: [], manifests: {}, frameworks: [], routes: [], components: [], tests: [], configFiles: [], integrationHints: [] },
+      contract: { ...contract, dangerousActions: { ...contract.dangerousActions, forbidden: ["policy detail".repeat(5000)] } },
+      pullRequest: { files: [] }, llm
+    })).rejects.toThrow("QA contract exceeds");
+    expect(llm.messages).toEqual([]);
+  });
+
+  it("enforces source-context uncertainty even when the model reports no unknowns", async () => {
+    const llm = new CapturingImpactLLM([]);
+    const result = await createImpactMap({
+      repoIndex: { root: ".", files: [], fileInventoryCoverage: { complete: true, includedFiles: 0, maxFiles: 50000 }, manifests: {}, frameworks: [], routes: [], components: [], tests: [], configFiles: [], integrationHints: [] },
+      contract, pullRequest: { files: [{ path: "large.ts", status: "modified", patch: "+ excerpt", contextStatus: "partial" }] }, llm
+    });
+    expect(result.unknowns).toContain(INCOMPLETE_IMPACT_CONTEXT_UNKNOWN);
   });
 
   it.skipIf(process.platform === "win32")("never sends a hard-linked manifest outside the target repo to the LLM", async () => {
@@ -205,9 +263,10 @@ describe("impact prompt budgets", () => {
       integrationHints: []
     };
 
-    const result = await createImpactMap({ repoIndex, contract, pullRequest: { files: [] }, llm });
+    const result = await createImpactMap({ repoIndex, contract, pullRequest: { files: [{ path: "src.ts", status: "modified", contextStatus: "partial" }] }, llm });
 
     expect(result.unknowns).toHaveLength(200);
+    expect(result.unknowns).toContain(INCOMPLETE_IMPACT_CONTEXT_UNKNOWN);
     expect(result.unknowns).toContain(INCOMPLETE_REPOSITORY_INVENTORY_UNKNOWN);
   });
 

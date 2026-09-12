@@ -1,19 +1,35 @@
 # Providers and security
 
-Provider contracts and model choices were verified against official documentation on 2026-07-13. First-party models can be overridden with `PREFLIGHT_SCOUT_MODEL`; their defaults favor a current, production-suitable balance of quality, latency, and cost. OpenAI-compatible gateways require `PREFLIGHT_SCOUT_MODEL` because their model identifiers are provider-specific.
+The OpenAI and Codex policy below is an unreleased source change, verified against official OpenAI documentation on 2026-09-12. Published 0.1.6 keeps its previous defaults. Other provider contracts retain their 2026-07-13 verification. First-party models can be overridden with `PREFLIGHT_SCOUT_MODEL`. OpenAI-compatible gateways require `PREFLIGHT_SCOUT_MODEL` because their model identifiers are provider-specific.
 
 ## Current defaults
 
 | Provider | Default | Optional override and use | API contract |
 | --- | --- | --- | --- |
-| OpenAI | `gpt-5.6` | `gpt-5.6-terra` or `gpt-5.6-luna` for lower-cost workloads | Responses API with strict `text.format` JSON Schema |
+| OpenAI | `gpt-6-astra`, `max` reasoning | `gpt-5.6-terra` or `gpt-5.6-luna` for lower-cost workloads | Responses API with strict `text.format` JSON Schema |
 | Anthropic | `claude-sonnet-5` | `claude-opus-4-8` for quality-first overrides | Messages API with `output_config.format.type=json_schema` |
 | Google | `gemini-3.5-flash` | `gemini-3.1-pro-preview` when preview risk is acceptable | `generateContent` with `responseJsonSchema` |
 | OpenAI-compatible gateway | none; `PREFLIGHT_SCOUT_MODEL` is required | gateway-specific | Chat Completions JSON mode |
 
-The OpenAI default uses the flagship GPT-5.6 alias because impact mapping and browser decisions are quality-sensitive; Terra and Luna are explicit cost optimizations. Anthropic describes Claude Sonnet 5 as “The best combination of speed and intelligence.” Preflight Scout's previous Gemini default, `gemini-2.5-pro`, is scheduled for shutdown on 2026-10-16; Preflight Scout now chooses stable `gemini-3.5-flash`, while Google's like-for-like Pro replacement remains the preview `gemini-3.1-pro-preview`.
+The OpenAI default uses GPT-6 Astra with `max` reasoning because impact mapping and browser decisions are quality-sensitive. This is a quality-oriented choice with potentially greater latency and API cost; operators can choose another model and effort. Anthropic describes Claude Sonnet 5 as “The best combination of speed and intelligence.” Preflight Scout's previous Gemini default, `gemini-2.5-pro`, is scheduled for shutdown on 2026-10-16; Preflight Scout now chooses stable `gemini-3.5-flash`, while Google's like-for-like Pro replacement remains the preview `gemini-3.1-pro-preview`.
 
-Local `codex-exec`, `claude-exec`, and `gemini-exec` runs do not pin a model unless `PREFLIGHT_SCOUT_EXEC_MODEL` is set. Omitting the override lets the installed agent use its current configured default.
+Codex planning and delegated browser/auth execution default to `gpt-6-astra` with `max` reasoning. Capability probes keep `low` effort and do not claim browser capability. Astra was exercised with Codex CLI 0.154.0; older CLI builds can reject the model and should be upgraded or explicitly configured for another available model. Claude and Gemini CLI modes retain their installed defaults.
+
+Model/effort controls belong in the trusted parent environment:
+
+- `PREFLIGHT_SCOUT_EXEC_MODEL` and `PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT` override the corresponding shared `PREFLIGHT_SCOUT_MODEL` and `PREFLIGHT_SCOUT_REASONING_EFFORT` values for local agents. Whitespace-only values are absent.
+- A different model receives no automatic Astra effort. Explicit effort is passed through for the chosen provider to validate.
+- `PREFLIGHT_SCOUT_EXEC_MODEL=default` omits the model flag. `PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT=default` omits the effort flag even when a shared effort is configured. Isolated planning still ignores user configuration, so its inherited default is the CLI's built-in default; normal delegated browser execution may use user configuration.
+- OpenAI API mode sends `reasoning.effort`; compatible gateways receive `reasoning_effort` only when explicitly configured. `PREFLIGHT_SCOUT_REASONING_EFFORT=default` leaves effort to the API. Gateways receive no assumed model or default effort.
+
+```bash
+export PREFLIGHT_SCOUT_LLM_PROVIDER=codex-exec
+export PREFLIGHT_SCOUT_EXEC_MODEL=gpt-6-astra
+export PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT=max
+preflight-scout doctor --base origin/main --head HEAD
+```
+
+Use `export` in the current task shell or repeat these controls for each command. Setting a variable before one command does not configure later commands. Do not move privileged controls into a repository env file to work around this.
 
 ## Structured-output contracts
 
@@ -32,7 +48,7 @@ Provider API calls have a 120-second default timeout, accept only
 stream at most 16 MiB before JSON parsing. HTTP/error diagnostics are read with
 a much smaller cap, redacted, and truncated. Provider retries are limited to
 four; set `PREFLIGHT_SCOUT_LLM_PROVIDER_ATTEMPTS` to an integer from 1 through 4.
-Keep both controls in the trusted parent environment.
+Keep both controls in the trusted parent environment. Context-limit errors and permanent HTTP request/authentication failures are not retried with the unchanged prompt. Transient failures retain bounded retries. After a context-limit error, reduce the reviewed diff or select a provider with sufficient context, then review a fresh analysis.
 
 OpenAI strict structured output requires all object fields to be required. Preflight Scout converts optional object fields into nullable required fields for the request, then removes null object fields before Zod validation. First-party OpenAI calls use the Responses API; `openai-compatible` deliberately retains Chat Completions JSON mode because third-party gateways vary in Responses and strict-schema support, and it refuses to start until a gateway-specific `PREFLIGHT_SCOUT_MODEL` is set.
 
@@ -88,7 +104,7 @@ PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT=high \
 preflight-scout run
 ```
 
-Set `PREFLIGHT_SCOUT_EXEC_MODEL` only when a reproducible pin is more important than following the agent's current default. When overriding `PREFLIGHT_SCOUT_EXEC_ARGS`, include `{images}` where Codex screenshot arguments should be inserted.
+Set `PREFLIGHT_SCOUT_EXEC_MODEL` and `PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT` for the desired quality, latency, and cost policy; use `default` to omit either pin. When overriding `PREFLIGHT_SCOUT_EXEC_ARGS`, include `{images}` where Codex screenshot arguments should be inserted.
 
 For full browser-agent execution, use `agent-run` with the agent's browser/MCP configuration. Codex and Claude Code are the primary supported delegated paths; Gemini delegated browser control remains best-effort.
 
@@ -150,8 +166,9 @@ code and must provide its own equivalent isolation.
   additionally remain on its exact origin. Non-HTTP(S) and browser-internal URLs, embedded
   URL credentials, off-origin clicks/forms/redirects, and popups block the
   mission. Evidence and auth state from a violated boundary are discarded or
-  invalidated; cross-origin SSO requires manual review. Delegated browser agents
-  do not inherit this deterministic boundary.
+  invalidated; cross-origin SSO requires a reviewed, authorized execution surface
+  outside the owned runner. Delegated browser agents do not inherit this
+  deterministic boundary.
 - Keep `.preflight-scout/auth/` ignored. Storage-state files may contain cookies, bearer tokens, and local/session storage.
 - `preflight-scout approve` stores decisions in `.preflight-scout/approvals.local.yml` and
   loads them only when Git proves the file is ignored and untracked. Do not
@@ -161,7 +178,7 @@ code and must provide its own equivalent isolation.
 
 ## Official references
 
-- [OpenAI GPT-5.6 guide](https://developers.openai.com/api/docs/guides/latest-model)
+- [OpenAI GPT-6 Astra model and reasoning efforts](https://developers.openai.com/api/docs/models/gpt-6-astra)
 - [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
 - [OpenAI Responses API](https://developers.openai.com/api/reference/resources/responses/methods/create)
 - [Codex CLI](https://developers.openai.com/codex/cli)

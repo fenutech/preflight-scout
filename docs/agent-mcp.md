@@ -5,7 +5,7 @@ Preflight Scout has two browser execution paths.
 The built-in `preflight-scout run` path keeps Playwright inside Preflight Scout. The
 configured LLM proposes actions from live evidence, while the runner permits
 navigation, mutation, and assertion only when each decision binds to an exact
-human-reviewed mission step, target, and policy label. A passing finish requires
+reviewed mission step, target, and policy label within task authorization. A passing finish requires
 reviewed-step coverage. The LLM does not directly hold Playwright tools in this
 mode.
 
@@ -13,7 +13,8 @@ The `preflight-scout agent-run` path hands the same mission to an external codin
 
 These are different trust boundaries. Preflight Scout's built-in Playwright runner enforces an
 exact same-origin HTTP(S) boundary and fails closed on unsafe schemes,
-off-origin interactions or redirects, and popups. Cross-origin SSO is manual.
+off-origin interactions or redirects, and popups. Cross-origin SSO needs a
+separately reviewed and authorized execution surface outside the owned runner.
 A delegated agent's browser follows that agent's own sandbox and MCP policy; it
 is not covered by Preflight Scout's deterministic navigation boundary.
 

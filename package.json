@@ -15,6 +15,7 @@
     "test": "vitest run",
     "test:ci": "node scripts/run-test-suite.mjs unit",
     "test:browser": "node scripts/run-test-suite.mjs browser",
+    "test:site:browser": "node apps/site/scripts/check-browser.mjs",
     "test:windows-process-tree": "vitest run packages/core/src/process-tree.test.ts packages/core/src/llm.test.ts packages/agent-exec/src/index.test.ts",
     "playwright:install": "pnpm --filter @preflight-scout/browser-runner exec playwright install chromium",
     "playwright:install:ci": "pnpm --filter @preflight-scout/browser-runner exec playwright install --with-deps chromium",
@@ -48,6 +49,6 @@
     "@types/node": "^22.20.1",
     "tsx": "4.23.1",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   }
 }

@@ -1,16 +1,18 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { verifyCacheHeaderSource, verifyRawHtml } from "./edge-contract.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const out = path.join(root, "out");
 const sitePackage = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
 const ogAlt = "Preflight Scout showing a failed browser check with its evidence";
+const setupRequest = "Fetch and follow the appropriate instructions to install and set up Preflight Scout for my coding agent from https://preflightscout.com/agent-setup/prompt.md";
 const pages = [
   {
     relative: "index.html",
-    heading: "Give your coding agent a real release check.",
+    heading: "Turn “done” into verifiable evidence.",
     title: "Preflight Scout — Release QA for coding agents",
     description: "Preflight Scout turns a pull-request diff into a test plan, approved browser checks, and evidence you can review before shipping.",
     canonical: "https://preflightscout.com/",
@@ -53,6 +55,8 @@ for (const page of pages) {
   assertContains(html, "https://preflightscout.com/opengraph-image.png", `${page.relative} social image URL`);
   assertContains(html, '<html lang="en"', `${page.relative} language`);
   assertContains(html, '<script src="/site.js" defer=""></script>', `${page.relative} progressive-enhancement script`);
+  assertContains(html, 'href="/llms.txt"', `${page.relative} visible agent discovery link`);
+  assertContains(html, 'rel="alternate" type="text/markdown" href="/agent-guide.md"', `${page.relative} alternate Markdown guide`);
 
   if ((html.match(/<h1(?:\s|>)/g) ?? []).length !== 1) throw new Error(`${page.relative} must contain exactly one h1`);
   if (/<meta\s+name="keywords"/i.test(html)) throw new Error(`${page.relative} must not emit ignored meta keywords`);
@@ -73,11 +77,21 @@ for (const page of pages) {
     assertContains(html, "claude plugin marketplace add fenutech/preflight-scout@plugin-stable", "home Claude Code stable-channel installation");
     assertContains(html, "preflight-scout install-browser", "home Chromium installation");
     assertContains(html, "1280×720", "home sample-report viewport");
+    assertContains(html, "For AI agents:", "home agent entry point");
+    assertContains(html, ">preflightscout.com/llms.txt</a>", "home copyable discovery URL");
     assertContains(html, `https://github.com/fenutech/preflight-scout/releases/tag/v${sitePackage.version}`, "home exact GitHub release gate");
     assertContains(html, `https://www.npmjs.com/package/@preflight-scout/cli/v/${sitePackage.version}`, "home exact npm release gate");
   }
 
   await verifyInternalLinks(html, page.relative);
+  if (page.relative === "index.html" || page.relative === "install/index.html") {
+    verifyRawHtml(html, html, sitePackage.version, page.relative);
+    assertContains(html, `data-copy-command="${setupRequest}"`, `${page.relative} exact agent onboarding request`);
+    assertContains(html, 'data-copy-label="Onboard your agent"', `${page.relative} primary agent onboarding action`);
+    assertContains(html, 'data-copy-success-label="Setup prompt copied"', `${page.relative} visible clipboard feedback`);
+    assertContains(html, 'aria-label="Setup prompt to copy"', `${page.relative} manual clipboard fallback`);
+    assertContains(html, "Install manually", `${page.relative} manual installation path`);
+  }
   if (page.relative === "install/index.html") {
     assertContains(html, "preflight-scout init --no-llm --base origin/main", "install repository initialization");
     assertContains(html, "PREFLIGHT_SCOUT_LLM_PROVIDER=codex-exec", "install Codex first run");
@@ -94,6 +108,7 @@ for (const page of pages) {
     assertContains(html, "claude plugin update preflight-scout@preflight-scout", "install Claude Code update command");
     assertContains(html, `https://github.com/fenutech/preflight-scout/releases/tag/v${sitePackage.version}`, "install exact GitHub release gate");
     assertContains(html, "0.1.0", "install first-update bootstrap guidance");
+    assertContains(html, 'id="manual-install"', "manual install jump target");
     assertContains(html, "do not mix unreleased source with", "install source and stable-channel pairing guidance");
   }
   if (page.relative === "example-report/index.html") {
@@ -105,6 +120,39 @@ const robots = await readFile(path.join(out, "robots.txt"), "utf8");
 assertContains(robots, "Allow: /", "robots.txt allow rule");
 assertContains(robots, "Sitemap: https://preflightscout.com/sitemap.xml", "robots.txt sitemap");
 if (/Disallow:\s*\/(?:example-report|licenses)/i.test(robots)) throw new Error("robots.txt must not hide noindex resources from crawlers");
+if (/Disallow:\s*\/(?:llms\.txt|agent-guide\.md|agent-setup)/i.test(robots)) throw new Error("robots.txt must not hide the public agent guides");
+
+const agentIndex = await readFile(path.join(out, "llms.txt"), "utf8");
+const agentGuide = await readFile(path.join(out, "agent-guide.md"), "utf8");
+const sourceAgentGuide = await readFile(path.join(root, "..", "..", "docs", "agent-guide.md"), "utf8");
+const sourceAgentIndex = await readFile(path.join(root, "public", "llms.txt"), "utf8");
+const setupGuide = await readFile(path.join(out, "agent-setup", "prompt.md"), "utf8");
+const setupTemplate = await readFile(path.join(root, "..", "..", "docs", "agent-setup-prompt.md"), "utf8");
+const expectedSetupGuide = setupTemplate.replace(/^<!-- Source template:.*-->\n\n/m, "").replaceAll("{{RELEASE_VERSION}}", sitePackage.version);
+if (agentGuide !== sourceAgentGuide) throw new Error("The exported agent guide must match docs/agent-guide.md exactly");
+if (agentIndex !== sourceAgentIndex) throw new Error("The exported agent discovery index must match its source exactly");
+if (setupGuide !== expectedSetupGuide) throw new Error("The exported setup guide must match its template at the website release version");
+if (/\{\{[A-Z_]+\}\}/.test(setupGuide)) throw new Error("The setup guide must not publish unresolved template values");
+assertContains(setupGuide, `https://github.com/fenutech/preflight-scout/releases/tag/v${sitePackage.version}`, "setup guide release verification");
+assertContains(setupGuide, `npm view @preflight-scout/cli@${sitePackage.version} version`, "setup guide registry verification");
+assertContains(setupGuide, `npm install --global @preflight-scout/cli@${sitePackage.version}`, "setup guide exact CLI install");
+assertContains(setupGuide, `preflight-scout update-check --skill-version ${sitePackage.version}`, "setup guide compatibility verification");
+assertContains(setupGuide, "preflight-scout install-browser", "setup guide Chromium install");
+assertContains(agentIndex, "https://preflightscout.com/agent-guide.md", "agent index onboarding link");
+assertContains(agentIndex, "https://preflightscout.com/agent-setup/prompt.md", "agent index setup link");
+assertContains(agentIndex, "https://raw.githubusercontent.com/fenutech/preflight-scout/plugin-stable/skills/preflight-scout/SKILL.md", "agent index released skill link");
+assertContains(agentGuide, "--analysis-dir", "agent guide reviewed-analysis reuse");
+assertContains(agentGuide, "--output-dir", "agent guide isolated run directories");
+assertContains(agentGuide, "report-summary.json", "agent guide summary-first evidence");
+assertContains(agentGuide, "checklist-only", "agent guide limited-access mode");
+assertContains(agentGuide.replace(/\s+/g, " "), "matching release tag", "agent guide installed-version boundary");
+for (const [name, content, maxBytes] of [["llms.txt", agentIndex, 4096], ["agent-guide.md", agentGuide, 16384], ["agent-setup/prompt.md", setupGuide, 16384]]) {
+  if (!/^# [^\n]*Preflight Scout/.test(content)) throw new Error(`${name} must be readable Markdown with the product title`);
+  if (Buffer.byteLength(content, "utf8") > maxBytes) throw new Error(`${name} exceeds its compact agent-context budget of ${maxBytes} bytes`);
+  if (/<(?:html|script)\b/i.test(content)) throw new Error(`${name} must contain plain Markdown, not an HTML response`);
+  if (/(?:\/Users\/|\/Volumes\/|\/home\/[^\s/]+\/|[A-Z]:\\Users\\)/u.test(content)) throw new Error(`${name} must not contain private machine paths`);
+  await verifyAgentDocLinks(content, name);
+}
 
 const sitemap = await readFile(path.join(out, "sitemap.xml"), "utf8");
 const sitemapUrls = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => match[1]).sort();
@@ -121,6 +169,7 @@ assertContains(sampleReport, '<meta name="robots" content="noindex, nofollow"', 
 if (sampleReport !== sourceSampleReport) throw new Error("The exported sample report must be byte-for-byte identical to the CLI-generated fixture");
 
 const headers = await readFile(path.join(out, "_headers"), "utf8");
+verifyCacheHeaderSource(headers);
 const home = await readFile(path.join(out, "index.html"), "utf8");
 const jsonLd = home.match(/<script\s+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/)?.[1];
 if (!jsonLd) throw new Error("Homepage JSON-LD is missing, so its Content Security Policy hash cannot be verified");
@@ -142,6 +191,9 @@ for (const rule of [
   "/example-report/auto-valid-promo/*",
   "/example-report/auto-expired-promo/*",
   "/licenses/*",
+  "/llms.txt\n  Content-Type: text/plain; charset=utf-8",
+  "/agent-guide.md\n  Content-Type: text/markdown; charset=utf-8",
+  "/agent-setup/prompt.md\n  Content-Type: text/markdown; charset=utf-8",
   "X-Robots-Tag: noindex"
 ]) assertContains(headers, rule, `_headers rule ${rule}`);
 
@@ -184,7 +236,7 @@ for (const relative of [
   JSON.parse(content);
 }
 
-console.log(`Verified ${pages.length} static pages, exact SEO metadata, local assets, and the noindex sample report boundary.`);
+console.log(`Verified ${pages.length} static pages, compact agent guides and their links, exact SEO metadata, local assets, and the noindex sample report boundary.`);
 
 function assertContains(content, expected, label) {
   if (!content.includes(expected)) throw new Error(`${label} is missing ${expected}`);
@@ -208,6 +260,27 @@ async function verifyInternalLinks(html, source) {
       await readFile(path.join(out, relative));
     } catch {
       throw new Error(`${source} links to missing local target ${href}`);
+    }
+  }
+}
+
+async function verifyAgentDocLinks(markdown, source) {
+  const links = [...markdown.matchAll(/\[[^\]\n]+\]\(([^\s)]+)\)/g)].map((match) => match[1]);
+  if (!links.length) throw new Error(`${source} must link to the relevant operating documentation`);
+  for (const href of links) {
+    const url = new URL(href);
+    if (url.protocol !== "https:" || url.username || url.password) throw new Error(`${source} has an unsafe documentation link: ${href}`);
+    if (url.origin === "https://preflightscout.com") {
+      await verifyInternalLinks(`<a href="${url.pathname}">`, source);
+    } else if (url.origin === "https://github.com" && url.pathname.startsWith("/fenutech/preflight-scout/")) {
+      const match = url.pathname.match(/^\/fenutech\/preflight-scout\/(?:blob|tree)\/main\/(.+)$/);
+      if (match) {
+        const repositoryRoot = path.resolve(root, "..", "..");
+        const target = path.resolve(repositoryRoot, decodeURIComponent(match[1]));
+        if (!target.startsWith(`${repositoryRoot}${path.sep}`)) throw new Error(`${source} has a repository-escaping link: ${href}`);
+        const targetStat = await stat(target).catch(() => null);
+        if (!targetStat || (!targetStat.isFile() && !targetStat.isDirectory())) throw new Error(`${source} links to a missing source document: ${href}`);
+      }
     }
   }
 }

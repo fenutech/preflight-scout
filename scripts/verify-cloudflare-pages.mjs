@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { verifyCacheHeaderSource } from "../apps/site/scripts/edge-contract.mjs";
 
 const root = process.cwd();
 const configPath = path.join(root, "wrangler.json");
@@ -29,6 +30,7 @@ for (const forbidden of ["account_id", "zone_id", "api_token", "secret", "token"
 }
 
 const headers = await readFile(headersPath, "utf8");
+verifyCacheHeaderSource(headers);
 for (const marker of [
   "/*",
   "Content-Security-Policy: default-src 'self'",
@@ -45,6 +47,9 @@ for (const marker of [
   "https://:project.pages.dev/*",
   "https://:version.:project.pages.dev/*",
   "/example-report/report\n  X-Robots-Tag: noindex, nofollow",
+  "/llms.txt\n  Content-Type: text/plain; charset=utf-8",
+  "/agent-guide.md\n  Content-Type: text/markdown; charset=utf-8",
+  "/agent-setup/prompt.md\n  Content-Type: text/markdown; charset=utf-8",
   "X-Robots-Tag: noindex"
 ]) {
   if (!headers.includes(marker)) throw new Error(`Cloudflare _headers is missing required marker: ${marker}`);

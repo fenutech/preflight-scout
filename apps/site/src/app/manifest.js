@@ -4,7 +4,7 @@ export default function manifest() {
   return {
     name: "Preflight Scout",
     short_name: "Preflight Scout",
-    description: "Release QA for coding agents, reviewed by humans.",
+    description: "Release verification for coding agents under explicit execution boundaries.",
     start_url: "/",
     display: "standalone",
     background_color: "#02090c",

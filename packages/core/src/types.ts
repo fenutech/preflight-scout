@@ -101,7 +101,7 @@ export interface ChangedFile {
   deletions?: number;
   patch?: string;
   content?: string;
-  contextStatus?: "included" | "omitted_changed_file_limit" | "omitted_total_budget";
+  contextStatus?: "included" | "partial" | "omitted_changed_file_limit" | "omitted_total_budget";
   contextNote?: string;
 }
 
@@ -109,6 +109,8 @@ export interface PullRequestContextCoverage {
   totalFiles: number;
   filesWithContext: number;
   omittedFiles: number;
+  /** Files whose included patch/content was truncated or could not be fully read. */
+  truncatedFiles?: number;
   contextChars: number;
   maxContextFiles: number;
   maxContextChars: number;

@@ -33,7 +33,7 @@ export async function analyzePullRequest(options: {
   options.progress?.("Calling LLM impact mapper");
   const impactMap = await createImpactMap({ repoIndex: safeRepoIndex, contract: safeContract, pullRequest: safePullRequest, llm });
   options.progress?.("Calling LLM mission planner");
-  const mission = await createQAMission({ impactMap, contract: safeContract, llm });
+  const mission = await createQAMission({ impactMap, contract: safeContract, pullRequest: safePullRequest, llm });
   options.progress?.("Rendering human QA report");
   const markdown = renderMarkdownReport({ impactMap, mission });
   return { repoIndex, contract, pullRequest, impactMap, mission, markdown };

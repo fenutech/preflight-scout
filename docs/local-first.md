@@ -26,7 +26,7 @@ preflight-scout init \
 - `.gitignore` entries for `.preflight-scout/auth/`, `.preflight-scout/runs/`,
   `.preflight-scout/approvals.local.yml`, and `.env.preflight-scout.local`
 
-The LLM drafts product meaning from repo context. CLI flags only apply explicit human-supplied facts such as URLs, credential environment variable names, and base refs.
+The LLM drafts product meaning from repo context. CLI flags apply explicit caller-supplied facts such as URLs, credential environment variable names, and base refs. An authorized agent can supply confirmed facts within the task's scope.
 When you pass an explicit `--role`, Preflight Scout treats that as the configured auth role set for the draft instead of preserving speculative LLM-inferred roles.
 
 ## Daily Use

@@ -26,12 +26,19 @@ export const UNKNOWN_REPO_INVENTORY_COVERAGE_NOTE =
   "Repository file-inventory coverage metadata is unavailable. Treat the inventory as incomplete and non-exhaustive.";
 
 export function redactText(value: string, additionalSecrets: Iterable<string> = []): string {
+  return redactTextWithPreparedSecrets(value, prepareSecretValues(additionalSecrets));
+}
+
+function prepareSecretValues(additionalSecrets: Iterable<string> = []): string[] {
+  return [...new Set([...envSecretValues(), ...additionalSecrets].filter((item) => item.length > 0))]
+    .sort((left, right) => right.length - left.length);
+}
+
+function redactTextWithPreparedSecrets(value: string, secrets: readonly string[]): string {
   // Parse PEM boundaries before substituting caller-controlled secret values.
   // Otherwise a secret that overlaps a boundary label could corrupt both the
   // BEGIN and END markers before the private-key scanner sees them.
   let redacted = redactPemPrivateKeys(value);
-  const secrets = [...new Set([...envSecretValues(), ...additionalSecrets].filter((item) => item.length > 0))]
-    .sort((left, right) => right.length - left.length);
   for (const secret of secrets) {
     redacted = redacted.split(secret).join("[REDACTED_ENV_SECRET]");
   }
@@ -216,11 +223,16 @@ export function redactPullRequestContext(pullRequest: PullRequestContext): PullR
     ...pullRequest,
     title: pullRequest.title ? redactText(pullRequest.title) : undefined,
     body: pullRequest.body ? redactText(pullRequest.body) : undefined,
+    ...(pullRequest.contextCoverage ? { contextCoverage: {
+      ...pullRequest.contextCoverage,
+      ...(pullRequest.contextCoverage.note ? { note: redactText(pullRequest.contextCoverage.note) } : {})
+    } } : {}),
     files: pullRequest.files.map((file) => {
       const includeFileContext = isSafeIndexedPath(file.path);
       return {
         ...file,
         path: redactText(file.path),
+        ...(file.contextNote ? { contextNote: includeFileContext ? redactText(file.contextNote) : OMITTED_SENSITIVE_FILE_CONTEXT } : {}),
         patch: file.patch
           ? includeFileContext ? redactText(file.patch) : OMITTED_SENSITIVE_FILE_CONTEXT
           : undefined,
@@ -266,14 +278,18 @@ function repoIndexRedactor(root: string): (value: string) => string {
     .filter((candidate) => candidate.length > 1 && candidate !== ".")
     .sort((left, right) => right.length - left.length);
   const windowsRoot = /^(?:[A-Za-z]:[\\/]|\\\\)/.test(root);
+  const rootMatchers = rootVariants.map((variant) => windowsRoot ? new RegExp(escapeRegExp(variant), "gi") : variant);
+  // This synchronous inventory operation shares one environment snapshot.
+  // A later inventory operation or public redactText call prepares fresh values.
+  const secrets = prepareSecretValues();
   return (value: string) => {
     let redacted = value;
-    for (const rootVariant of rootVariants) {
-      redacted = windowsRoot
-        ? redacted.replace(new RegExp(escapeRegExp(rootVariant), "gi"), "[REDACTED_REPO_ROOT]")
-        : redacted.split(rootVariant).join("[REDACTED_REPO_ROOT]");
+    for (const rootMatcher of rootMatchers) {
+      redacted = typeof rootMatcher === "string"
+        ? redacted.split(rootMatcher).join("[REDACTED_REPO_ROOT]")
+        : redacted.replace(rootMatcher, "[REDACTED_REPO_ROOT]");
     }
-    return redactText(redacted);
+    return redactTextWithPreparedSecrets(redacted, secrets);
   };
 }
 

@@ -83,6 +83,25 @@ describe("parseAndValidateJson", () => {
 });
 
 describe("CliExecLLMClient", () => {
+  it.skipIf(process.platform === "win32")("applies the default and inherited Codex policy to real subprocess arguments", async () => {
+    const fixture = await createFakeCli("codex");
+    vi.stubEnv("PATH", fixture.path);
+    vi.stubEnv("PREFLIGHT_SCOUT_LLM_PROVIDER", "codex-exec");
+    vi.stubEnv("PREFLIGHT_SCOUT_EXEC_CWD", fixture.targetRoot);
+    for (const key of ["PREFLIGHT_SCOUT_EXEC_COMMAND", "PREFLIGHT_SCOUT_EXEC_ARGS", "PREFLIGHT_SCOUT_EXEC_MODEL", "PREFLIGHT_SCOUT_MODEL", "PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT", "PREFLIGHT_SCOUT_REASONING_EFFORT"]) vi.stubEnv(key, undefined);
+    const messages = [{ role: "user" as const, content: "Return JSON." }];
+    const options = { schemaName: "qa_decision", schema: z.object({ ok: z.boolean() }), maxProviderAttempts: 1 };
+    await createDefaultLLMFromEnv()!.completeJson(messages, options);
+    expect((await readFakeCliCapture(fixture.capturePath)).argv).toEqual(expect.arrayContaining(["-m", "gpt-6-astra", "model_reasoning_effort='max'"]));
+    vi.stubEnv("PREFLIGHT_SCOUT_EXEC_MODEL", "default");
+    vi.stubEnv("PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT", "default");
+    await createDefaultLLMFromEnv()!.completeJson(messages, options);
+    const inheritedArgs = (await readFakeCliCapture(fixture.capturePath)).argv;
+    expect(inheritedArgs).not.toContain("-m");
+    expect(inheritedArgs.join(" ")).not.toContain("model_reasoning_effort");
+    expect(inheritedArgs).toContain("--ignore-user-config");
+  });
+
   it("times out stalled local agent commands with schema context", async () => {
     const client = new CliExecLLMClient({
       kind: "codex-exec",
@@ -436,8 +455,52 @@ describe("CliExecLLMClient", () => {
 });
 
 describe("current provider contracts", () => {
+  it.each([
+    [undefined, undefined, "gpt-6-astra", "max"],
+    ["other-model", undefined, "other-model", undefined],
+    [undefined, "low", "gpt-6-astra", "low"],
+    [undefined, "default", "gpt-6-astra", undefined]
+  ])("sends effective API model and reasoning controls (%s, %s)", async (model, effort, expectedModel, expectedEffort) => {
+    vi.stubEnv("PREFLIGHT_SCOUT_LLM_PROVIDER", "openai");
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    vi.stubEnv("PREFLIGHT_SCOUT_MODEL", model);
+    vi.stubEnv("PREFLIGHT_SCOUT_REASONING_EFFORT", effort);
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      output: [{ content: [{ type: "output_text", text: '{"ok":true}' }] }]
+    })));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(createDefaultLLMFromEnv()!.completeJson([{ role: "user", content: "Return JSON." }], {
+      schemaName: "qa_decision", schema: z.object({ ok: z.boolean() })
+    })).resolves.toEqual({ ok: true });
+    const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    expect(body.model).toBe(expectedModel);
+    expect(body.reasoning?.effort).toBe(expectedEffort);
+    expect(body.store).toBe(false);
+  });
+
+  it.each(["context_length_exceeded", "Your input exceeds the context window", "prompt is too long"])("does not replay an oversized prompt: %s", async (message) => {
+    const complete = vi.fn(async () => { throw new Error(message); });
+    await expect(completeWithRepair([{ role: "user", content: "private prompt" }], {
+      schemaName: "impact_map", schema: z.object({ ok: z.boolean() }), maxProviderAttempts: 4
+    }, complete)).rejects.toThrow("unchanged prompt was not retried");
+    expect(complete).toHaveBeenCalledOnce();
+  });
+
+  it("retries transient failures but stops on permanent HTTP failures", async () => {
+    const complete = vi.fn().mockRejectedValueOnce(new Error("request failed with HTTP 503"))
+      .mockResolvedValueOnce('{"ok":true}');
+    await expect(completeWithRepair([], {
+      schemaName: "impact_map", schema: z.object({ ok: z.boolean() }), maxProviderAttempts: 2
+    }, complete)).resolves.toEqual({ ok: true });
+    const permanent = vi.fn().mockRejectedValue(new Error("request failed with HTTP 401"));
+    await expect(completeWithRepair([], {
+      schemaName: "impact_map", schema: z.object({ ok: z.boolean() }), maxProviderAttempts: 4
+    }, permanent)).rejects.toThrow("HTTP 401");
+    expect(permanent).toHaveBeenCalledOnce();
+  });
+
   it("keeps production defaults on current stable model families", () => {
-    expect(DEFAULT_OPENAI_MODEL).toBe("gpt-5.6");
+    expect(DEFAULT_OPENAI_MODEL).toBe("gpt-6-astra");
     expect(DEFAULT_ANTHROPIC_MODEL).toBe("claude-sonnet-5");
     expect(DEFAULT_GEMINI_MODEL).toBe("gemini-3.5-flash");
   });

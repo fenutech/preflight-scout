@@ -4,7 +4,49 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { loadEnvFile, resolveAnalysisOutputDir, resolveContractOutputDir, resolveContractStorageStatePath } from "./local.js";
+import { buildAgentEnvironment } from "@preflight-scout/agent-exec";
+import { resolveExecModelSettings } from "@preflight-scout/core";
+import { buildDelegatedInvocationEnvironment, loadEnvFile, resolveAnalysisOutputDir, resolveContractOutputDir, resolveContractStorageStatePath } from "./local.js";
+
+describe("delegated CLI invocation environment", () => {
+  it("retains shared and execution-specific controls for argv without forwarding them to a built-in child", () => {
+    const sourceEnv = {
+      PREFLIGHT_SCOUT_MODEL: "shared-model",
+      PREFLIGHT_SCOUT_REASONING_EFFORT: "high",
+      PREFLIGHT_SCOUT_EXEC_MODEL: "default",
+      PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT: "default",
+      PREFLIGHT_SCOUT_BROWSER_QA_PASSWORD: "selected-password",
+      AWS_SECRET_ACCESS_KEY: "unrelated-secret"
+    };
+    const env = buildDelegatedInvocationEnvironment("codex", ["PREFLIGHT_SCOUT_BROWSER_QA_PASSWORD"], sourceEnv);
+    expect(resolveExecModelSettings("codex", env)).toEqual({ model: undefined, reasoningEffort: undefined });
+    expect(env.PREFLIGHT_SCOUT_MODEL).toBe("shared-model");
+    expect(env.PREFLIGHT_SCOUT_REASONING_EFFORT).toBe("high");
+    expect(env.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+    const child = buildAgentEnvironment("codex", { sourceEnv: env, credentialEnvNames: ["PREFLIGHT_SCOUT_BROWSER_QA_PASSWORD"] });
+    expect(child.PREFLIGHT_SCOUT_BROWSER_QA_PASSWORD).toBe("selected-password");
+    for (const key of Object.keys(sourceEnv).filter((key) => !key.includes("BROWSER_QA_PASSWORD"))) {
+      expect(child[key]).toBeUndefined();
+    }
+  });
+
+  it("keeps shared model fallback for each built-in agent", () => {
+    for (const kind of ["codex", "claude", "gemini"] as const) {
+      const env = buildDelegatedInvocationEnvironment(kind, [], {
+        PREFLIGHT_SCOUT_MODEL: "shared-model", PREFLIGHT_SCOUT_REASONING_EFFORT: "low"
+      });
+      expect(resolveExecModelSettings(kind, env)).toEqual({ model: "shared-model", reasoningEffort: "low" });
+    }
+  });
+
+  it("does not add model controls or unrelated secrets to custom commands", () => {
+    const env = buildDelegatedInvocationEnvironment("custom", [], {
+      PREFLIGHT_SCOUT_EXEC_MODEL: "private-model", PREFLIGHT_SCOUT_REASONING_EFFORT: "max",
+      OPENAI_API_KEY: "unrelated-provider-secret"
+    });
+    expect(env).toEqual({ PREFLIGHT_SCOUT_DELEGATED_SANDBOX: "1" });
+  });
+});
 
 const execFileAsync = promisify(execFile);
 const controlledKeys = [
@@ -13,6 +55,7 @@ const controlledKeys = [
   "PREFLIGHT_SCOUT_EXEC_COMMAND",
   "PREFLIGHT_SCOUT_OPENAI_BASE_URL",
   "PREFLIGHT_SCOUT_MODEL",
+  "PREFLIGHT_SCOUT_MAX_REPO_FILES",
   "PREFLIGHT_SCOUT_TRUST_ENV_FILE_CONTROLS",
   "PREFLIGHT_SCOUT_BROWSER_QA_EMAIL",
   "PREFLIGHT_SCOUT_BROWSER_QA_PASSWORD",
@@ -103,6 +146,15 @@ describe("loadEnvFile", () => {
     expect(process.env.GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined();
     expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined();
     expect(process.env.PLAYWRIGHT_BROWSERS_PATH).toBeUndefined();
+  });
+
+  it("prevents an ignored repository env file from changing inventory coverage", async () => {
+    await writeFile(path.join(dir, ".gitignore"), ".env.preflight-scout.local\n");
+    await writeFile(path.join(dir, ".env.preflight-scout.local"), "PREFLIGHT_SCOUT_MAX_REPO_FILES=1\nPREFLIGHT_SCOUT_APP_URL=http://127.0.0.1:4173\n");
+    process.env.PREFLIGHT_SCOUT_MAX_REPO_FILES = "60000";
+    await expect(loadEnvFile(dir, ".env.preflight-scout.local")).rejects.toThrow("PREFLIGHT_SCOUT_MAX_REPO_FILES");
+    expect(process.env.PREFLIGHT_SCOUT_MAX_REPO_FILES).toBe("60000");
+    expect(process.env.PREFLIGHT_SCOUT_APP_URL).toBeUndefined();
   });
 
   it("loads ignored local credentials and app configuration", async () => {

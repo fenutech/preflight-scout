@@ -216,7 +216,7 @@ describe("generic repo smoke", () => {
       expect(loginResult.status).toBe("passed");
       expect(missionResult.status).toBe("passed");
       await expect(readFile(storageState, "utf8")).resolves.toContain("demo-user");
-      await expect(readFile(path.join(dir, "auth-run", "report.md"), "utf8")).resolves.toContain("Verdict: **Ready for human review**");
+      await expect(readFile(path.join(dir, "auth-run", "report.md"), "utf8")).resolves.toContain("Verdict: **Ready for review**");
       await expect(readFile(path.join(dir, "auth-run", "report.md"), "utf8")).resolves.toContain("Admin analytics");
     } finally {
       await new Promise<void>((resolve, reject) => authServer.close((error) => (error ? reject(error) : resolve())));

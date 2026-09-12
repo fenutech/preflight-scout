@@ -131,6 +131,8 @@ describe("Git diff paths", () => {
 
     expect(large?.content).toContain("file content omitted by Preflight Scout");
     expect(large?.content.length).toBeLessThan(200);
+    expect(large?.contextStatus).toBe("partial");
+    expect(pullRequest.contextCoverage).toMatchObject({ complete: false, truncatedFiles: 1, omittedFiles: 0 });
   });
 
   it("retains removed auth policy lines in a bounded deletion patch", async () => {
@@ -193,6 +195,27 @@ describe("Git diff paths", () => {
     });
     expect(pullRequest.contextCoverage?.note).toContain("impact coverage as incomplete");
   }, 20_000);
+
+  it("shares a large diff budget across later files and reports partial source coverage", async () => {
+    await git(["init", "--quiet"]);
+    await git(["config", "user.email", "qa@example.com"]);
+    await git(["config", "user.name", "Preflight Scout"]);
+    await writeFile(path.join(dir, "README.md"), "base\n");
+    await git(["add", "."]);
+    await git(["commit", "--quiet", "-m", "base"]);
+    const base = (await gitOutput(["rev-parse", "HEAD"])).trim();
+    await Promise.all(Array.from({ length: 25 }, (_, index) => writeFile(
+      path.join(dir, `change-${String(index).padStart(2, "0")}.ts`),
+      `export const marker${index} = true;\n` + "// long source line\n".repeat(1600)
+    )));
+    await git(["add", "."]);
+    await git(["commit", "--quiet", "-m", "many large files"]);
+    const result = await readGitDiff({ base, head: "HEAD", cwd: dir, includePatch: true });
+    expect(result.files.at(-1)?.patch).toContain("marker24");
+    expect(result.files.every((file) => file.patch?.includes("marker"))).toBe(true);
+    expect(result.contextCoverage).toMatchObject({ filesWithContext: 25, omittedFiles: 0, truncatedFiles: 25, complete: false });
+    expect(result.contextCoverage!.contextChars).toBeLessThanOrEqual(512 * 1024);
+  }, 20000);
 
   async function git(args: string[]): Promise<void> {
     await execFileAsync("git", args, { cwd: dir });

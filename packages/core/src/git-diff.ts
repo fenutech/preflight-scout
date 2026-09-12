@@ -1,5 +1,6 @@
 import path from "node:path";
 import { createTrustedGit, resolveTrustedGitCommit, type TrustedGit } from "./trusted-git.js";
+import { clipJsonString } from "./prompt-context.js";
 import type { ChangedFile, PullRequestContext } from "./types.js";
 
 const MAX_GIT_BLOB_BYTES = 1024 * 1024;
@@ -31,35 +32,39 @@ export async function readGitDiff(options: { base: string; head: string; cwd: st
   if (options.includePatch) {
     let contextChars = 0;
     let filesWithContext = 0;
-    let totalBudgetExhausted = false;
+    let truncatedFiles = 0;
     for (const [index, file] of files.entries()) {
       if (index >= MAX_GIT_CONTEXT_FILES) {
         markContextOmitted(file, "omitted_changed_file_limit");
-        continue;
-      }
-      if (totalBudgetExhausted) {
-        markContextOmitted(file, "omitted_total_budget");
         continue;
       }
       const { stdout } = await git.exec(
         ["diff", "--no-ext-diff", "--no-textconv", range, "--", literalPathspec(file.path)],
         { cwd: options.cwd, maxBuffer: 1024 * 1024 * 8 }
       );
-      const patch = trimPatch(stdout);
-      const content = file.status !== "deleted"
+      const sourcePatch = trimPatch(stdout);
+      const sourceContent = file.status !== "deleted"
         ? await readChangedFileContent(options.cwd, headCommit, file.path, git)
-        : undefined;
+        : { content: undefined, complete: true };
+      // Share the budget across remaining eligible files, rather than starving later changes.
+      const remainingFiles = Math.min(files.length, MAX_GIT_CONTEXT_FILES) - index;
+      const allowance = Math.floor((MAX_GIT_CONTEXT_CHARS - contextChars) / remainingFiles);
+      const patch = clipJsonString(sourcePatch, allowance);
+      const content = sourceContent.content === undefined ? undefined
+        : clipJsonString(sourceContent.content, Math.max(0, allowance - patch.length));
       const nextChars = patch.length + (content?.length ?? 0);
-      if (contextChars + nextChars > MAX_GIT_CONTEXT_CHARS) {
-        totalBudgetExhausted = true;
+      if (!patch && !content) {
         markContextOmitted(file, "omitted_total_budget");
         continue;
       }
+      const partial = sourcePatch !== stdout || !sourceContent.complete || patch !== sourcePatch || content !== sourceContent.content;
       file.patch = patch;
-      file.contextStatus = "included";
-      if (file.status !== "deleted") {
-        file.content = content;
+      file.contextStatus = partial ? "partial" : "included";
+      if (partial) {
+        truncatedFiles += 1;
+        file.contextNote = "Patch/content context is partial: a per-file, blob-read, or shared context budget omitted some source text. Treat impact coverage as incomplete.";
       }
+      if (file.status !== "deleted") file.content = content;
       contextChars += nextChars;
       filesWithContext += 1;
     }
@@ -72,12 +77,13 @@ export async function readGitDiff(options: { base: string; head: string; cwd: st
         totalFiles: files.length,
         filesWithContext,
         omittedFiles,
+        truncatedFiles,
         contextChars,
         maxContextFiles: MAX_GIT_CONTEXT_FILES,
         maxContextChars: MAX_GIT_CONTEXT_CHARS,
-        complete: omittedFiles === 0,
-        ...(omittedFiles ? {
-          note: "Preflight Scout retained path, status, and line-count metadata for every changed file, but omitted some patch/content context. Treat impact coverage as incomplete and report this uncertainty."
+        complete: omittedFiles === 0 && truncatedFiles === 0,
+        ...(omittedFiles || truncatedFiles ? {
+          note: "Preflight Scout retained path, status, and line-count metadata for every changed file, but omitted or truncated some patch/content context. Treat impact coverage as incomplete and report this uncertainty."
         } : {})
       }
     };
@@ -172,28 +178,28 @@ async function readNumstat(cwd: string, range: string, git: TrustedGit): Promise
   return stats;
 }
 
-async function readChangedFileContent(cwd: string, headCommit: string, filePath: string, git: TrustedGit): Promise<string | undefined> {
+async function readChangedFileContent(cwd: string, headCommit: string, filePath: string, git: TrustedGit): Promise<{ content: string | undefined; complete: boolean }> {
   try {
     const entry = await readHeadTreeEntry(cwd, headCommit, filePath, git);
-    if (!entry || entry.type !== "blob" || (entry.mode !== "100644" && entry.mode !== "100755")) return undefined;
+    if (!entry || entry.type !== "blob" || (entry.mode !== "100644" && entry.mode !== "100755")) return { content: undefined, complete: true };
 
     const { stdout: sizeOutput } = await git.exec(["cat-file", "-s", entry.object], {
       cwd,
       maxBuffer: 1024
     });
     const size = Number(sizeOutput.trim());
-    if (!Number.isSafeInteger(size) || size < 0) return undefined;
+    if (!Number.isSafeInteger(size) || size < 0) return { content: undefined, complete: false };
     if (size > MAX_GIT_BLOB_BYTES) {
-      return `[file content omitted by Preflight Scout: Git blob is ${size} bytes]\n`;
+      return { content: `[file content omitted by Preflight Scout: Git blob is ${size} bytes]\n`, complete: false };
     }
 
     const { stdout: content } = await git.exec(["cat-file", "blob", entry.object], {
       cwd,
       maxBuffer: MAX_GIT_BLOB_BYTES + 1
     });
-    return content.length > 20000 ? `${content.slice(0, 20000)}\n\n[file content truncated by Preflight Scout]\n` : content;
+    return { content: content.length > 20000 ? `${content.slice(0, 20000)}\n\n[file content truncated by Preflight Scout]\n` : content, complete: content.length <= 20000 };
   } catch {
-    return undefined;
+    return { content: undefined, complete: false };
   }
 }
 

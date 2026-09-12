@@ -6,6 +6,9 @@ import path from "node:path";
 import { createTrustedGit, type TrustedGit } from "./trusted-git.js";
 import type { KnownRepoFileInventoryCoverage } from "./types.js";
 
+export const DEFAULT_REPOSITORY_MAX_FILES = 50_000;
+export const MAX_REPOSITORY_FILES = 250_000;
+
 const DEFAULT_IGNORED_SEGMENTS = new Set([
   ".git",
   "node_modules",
@@ -83,9 +86,9 @@ export interface WalkFilesResult {
 }
 
 export async function walkFilesWithCoverage(root: string, options: { maxFiles?: number } = {}): Promise<WalkFilesResult> {
-  const maxFiles = options.maxFiles ?? 5000;
-  if (!Number.isSafeInteger(maxFiles) || maxFiles < 0) {
-    throw new Error("maxFiles must be a non-negative safe integer");
+  const maxFiles = options.maxFiles ?? DEFAULT_REPOSITORY_MAX_FILES;
+  if (!Number.isSafeInteger(maxFiles) || maxFiles < 0 || maxFiles > MAX_REPOSITORY_FILES) {
+    throw new Error(`maxFiles must be a non-negative safe integer at most ${MAX_REPOSITORY_FILES}`);
   }
 
   const git = await trustedGitForWorkTree(root);
@@ -183,21 +186,25 @@ async function walkGitVisibleFiles(root: string, maxFiles: number, git: TrustedG
   const candidates = [
     ...tracked.sort(),
     ...untracked.sort()
-  ].filter(isSafeIndexedPath);
+  ].filter(isSafeIndexedPath).sort((left, right) => Number(left.includes("/")) - Number(right.includes("/")));
   const output: string[] = [];
   let truncated = false;
 
-  for (const relative of new Set(candidates)) {
-    try {
-      const stat = await fs.lstat(path.join(root, relative));
-      if (!isSafeRegularFile(stat)) continue;
-      if (output.length >= maxFiles) {
-        truncated = true;
-        break;
+  const uniqueCandidates = [...new Set(candidates)];
+  // Bound concurrent metadata reads while avoiding one filesystem round-trip per file in large repositories.
+  for (let start = 0; start < uniqueCandidates.length && !truncated; start += 64) {
+    const batch = uniqueCandidates.slice(start, start + 64);
+    const safeFiles = await Promise.all(batch.map(async (relative) => {
+      try {
+        return isSafeRegularFile(await fs.lstat(path.join(root, relative))) ? relative : undefined;
+      } catch {
+        return undefined; // A tracked file may have been deleted since Git listed it.
       }
+    }));
+    for (const relative of safeFiles) {
+      if (relative === undefined) continue;
+      if (output.length >= maxFiles) { truncated = true; break; }
       output.push(relative);
-    } catch {
-      // A tracked path may have been deleted from the worktree between Git listing and indexing.
     }
   }
 
@@ -222,7 +229,7 @@ async function walkFileSystem(root: string, maxFiles: number): Promise<BoundedFi
   async function visit(current: string): Promise<void> {
     if (truncated) return;
     const entries = await fs.readdir(current, { withFileTypes: true });
-    entries.sort((left, right) => left.name.localeCompare(right.name));
+    entries.sort((left, right) => Number(left.isDirectory()) - Number(right.isDirectory()) || left.name.localeCompare(right.name));
     for (const entry of entries) {
       if (truncated) break;
       const absolute = path.join(current, entry.name);

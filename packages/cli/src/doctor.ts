@@ -3,7 +3,7 @@ import { access, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { AppUrlValidationError, browserCredentialKindForEnvName, createTrustedGit, loadContract, redactText, resolveTargetUrl, resolveTrustedGitCommit, TargetEnvironmentError, validateAppUrl, type QAContract, type TrustedGit } from "@preflight-scout/core";
+import { AppUrlValidationError, browserCredentialKindForEnvName, createTrustedGit, DEFAULT_OPENAI_MODEL, loadContract, redactText, resolveExecModelSettings, resolveReasoningEffort, resolveTargetUrl, resolveTrustedGitCommit, TargetEnvironmentError, validateAppUrl, type QAContract, type TrustedGit } from "@preflight-scout/core";
 import { AgentExecError, runAgentCapabilityProbe, type AgentExecKind, type AgentExecResult } from "@preflight-scout/agent-exec";
 import { loadEnvFile } from "./local.js";
 
@@ -155,6 +155,11 @@ function interpretDelegatedAgentResult(agent: AgentExecKind, result: AgentExecRe
   const legacyStatus = combined.match(/PREFLIGHT_SCOUT_PROBE_STATUS\s*=\s*(pass|blocked|fail)/i)?.[1]?.toLowerCase();
   const status = runtimeStatus ?? legacyStatus;
   if (result.exitCode !== 0) {
+    if (agent === "codex" && /requires a newer version of Codex/i.test(combined)) {
+      return fail("delegated_agent_runtime", "Delegated agent runtime",
+        "The selected model requires a newer Codex CLI.",
+        "Update the Codex executable on this task's PATH, then rerun doctor --agent codex. Or explicitly choose an available model with PREFLIGHT_SCOUT_EXEC_MODEL; Scout does not silently substitute a model.");
+    }
     return fail(
       "delegated_agent_runtime",
       "Delegated agent runtime",
@@ -369,6 +374,12 @@ async function checkContract(root: string, contract: QAContract): Promise<Doctor
   return pass("contract", "QA contract", `Loaded .preflight-scout/config.yml with ${roles.length} auth role(s), ${rootUrls + targetUrls} configured URL(s), and ${Object.keys(contract.app.targets ?? {}).length} named target(s).`);
 }
 
+function boundedModelDiagnostic(value: string): string {
+  const safe = redactText(value);
+  if (safe.length <= 512) return safe;
+  return `${safe.slice(0, 480)}\n[model detail truncated]`;
+}
+
 export function checkLlmProvider(): DoctorCheck {
   const provider = process.env.PREFLIGHT_SCOUT_LLM_PROVIDER;
   const hasOpenAI = Boolean(process.env.OPENAI_API_KEY);
@@ -383,11 +394,25 @@ export function checkLlmProvider(): DoctorCheck {
     return fail("llm_provider", "LLM provider", "LLM provider is explicitly disabled.");
   }
   if (provider === "codex-exec" || provider === "claude-exec" || provider === "gemini-exec") {
-    return pass("llm_provider", "LLM provider", `Configured provider ${provider}.`);
+    try {
+      const settings = resolveExecModelSettings(provider.replace("-exec", "") as "codex" | "claude" | "gemini");
+      return pass("llm_provider", "LLM provider", `Configured provider ${provider}.`, boundedModelDiagnostic(
+        `Model: ${settings.model ?? "CLI default"}; reasoning effort: ${settings.reasoningEffort ?? "CLI default"}. This is configuration only; use --agent for a runtime probe.`
+      ));
+    } catch {
+      return fail("llm_provider", "LLM provider", "Invalid local-agent model/effort configuration.", "Check PREFLIGHT_SCOUT_EXEC_MODEL and PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT in the trusted parent environment.");
+    }
   }
   if (provider === "openai") {
+    const model = process.env.PREFLIGHT_SCOUT_MODEL?.trim() || DEFAULT_OPENAI_MODEL;
+    let effort: string | undefined;
+    try {
+      effort = resolveReasoningEffort(process.env.PREFLIGHT_SCOUT_REASONING_EFFORT, model === DEFAULT_OPENAI_MODEL);
+    } catch {
+      return fail("llm_provider", "LLM provider", "Invalid OpenAI reasoning effort configuration.");
+    }
     return hasOpenAI
-      ? pass("llm_provider", "LLM provider", "Configured provider openai.")
+      ? pass("llm_provider", "LLM provider", "Configured provider openai.", boundedModelDiagnostic(`Model: ${model}; reasoning effort: ${effort ?? "provider default"}.`))
       : fail("llm_provider", "LLM provider", "OpenAI provider is missing OPENAI_API_KEY.");
   }
   if (provider === "anthropic") {

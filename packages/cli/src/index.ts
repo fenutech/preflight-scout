@@ -25,13 +25,13 @@ import {
   writeTextEnsuringDir
 } from "@preflight-scout/core";
 import { canonicalizeStorageStatePath, checkBrowserAvailability, installChromium, printHtmlReportToPdf, validateStorageStateInput, verifyStoredAuthentication, writeStorageStateMetadata } from "@preflight-scout/browser-runner";
-import { buildAgentEnvironment, renderAgentPrompt, runAgentAuthLogin, runAgentExecution, type AgentExecKind, type AgentExecResult } from "@preflight-scout/agent-exec";
+import { renderAgentPrompt, runAgentAuthLogin, runAgentExecution, type AgentExecKind, type AgentExecResult } from "@preflight-scout/agent-exec";
 import { executeMissionViaPromptTool, listMCPTools } from "@preflight-scout/mcp";
 import { CLI_ANALYSIS_RUNTIME, CLI_EXECUTION_RUNTIME, resolveReviewedAnalysis, type ReviewedAnalysis } from "./analysis.js";
 import { buildAuthLoginMission, resolveAuthStorageStatePath } from "./auth.js";
 import { createGenericDemoRepo } from "./demo.js";
 import { renderDoctorReport, runDoctor } from "./doctor.js";
-import { assertCanWriteConfig, createProgressReporter, loadEnvFile, parseTargetEnv, renderInitSummary, resolveAnalysisOutputDir, resolveArtifactReadDirectory, resolveArtifactReadFile, resolveBaseRef, resolveContractOutputDir, resolveHeadRef, resolveRepoPath, resolveStorageOptions } from "./local.js";
+import { assertCanWriteConfig, buildDelegatedInvocationEnvironment, createProgressReporter, loadEnvFile, parseTargetEnv, renderInitSummary, resolveAnalysisOutputDir, resolveArtifactReadDirectory, resolveArtifactReadFile, resolveBaseRef, resolveContractOutputDir, resolveHeadRef, resolveRepoPath, resolveStorageOptions } from "./local.js";
 import { runAutomationCandidates, safeArtifactSegment, selectAutomationCandidates } from "./missions.js";
 import { openReport, renderArtifactSummary } from "./summary.js";
 import { checkForUpdates, renderUpdateCheck } from "./update.js";
@@ -135,9 +135,9 @@ program
       const agentHeartbeatMs = parseOptionalPositiveInteger(options.agentHeartbeatMs, "--agent-heartbeat-ms") ?? 1000 * 30;
       const agentKind = options.agent as AgentExecKind;
       const delegatedContract = selectContractRoles(contract, mission.role ? [mission.role] : []);
-      const agentEnv = buildAgentEnvironment(agentKind, {
-        credentialEnvNames: selectedRoleCredentialEnvNames(contract, mission.role ? [mission.role] : [])
-      });
+      const agentEnv = buildDelegatedInvocationEnvironment(
+        agentKind, selectedRoleCredentialEnvNames(contract, mission.role ? [mission.role] : [])
+      );
       await Promise.all([
         fs.rm(saveStorageState, { force: true }),
         fs.rm(`${saveStorageState}.preflight-scout.json`, { force: true })
@@ -299,9 +299,10 @@ program
   .command("init")
   .description("Create local Preflight Scout config from repo context")
   .option("--root <path>", "repository root", process.cwd())
-  .option("--dry-run", "print repo context without writing files", false)
+  .option("--dry-run", "print a compact repo summary without writing files", false)
+  .option("--full-index", "include the full repository inventory in --dry-run output", false)
   .option("--force", "overwrite existing .preflight-scout/config.yml", false)
-  .option("--no-llm", "write a blank reviewed-by-human contract instead of asking the configured LLM")
+  .option("--no-llm", "write a blank contract for review instead of asking the configured LLM")
   .option("--env-file <path>", "load environment variables before init", ".env.preflight-scout.local")
   .option("--url <url>", "default app URL")
   .option("--local-url <url>", "local development app URL")
@@ -324,7 +325,14 @@ program
     progress("Indexing repository for initial QA contract");
     const repoIndex = await indexRepository(root);
     if (options.dryRun) {
-      console.log(JSON.stringify(repoIndex, null, 2));
+      console.log(JSON.stringify(options.fullIndex ? repoIndex : {
+        root: repoIndex.root,
+        fileInventoryCoverage: repoIndex.fileInventoryCoverage,
+        packageManager: repoIndex.packageManager,
+        manifestFiles: Object.keys(repoIndex.manifests),
+        sampleFiles: repoIndex.files.slice(0, 30),
+        note: "Compact repository inventory summary. Use --dry-run --full-index only when the complete indexed context is needed."
+      }, null, 2));
       console.log("\nRun without --dry-run to create .preflight-scout files.");
       return;
     }
@@ -338,7 +346,7 @@ program
         "Or pass --no-llm for a blank contract."
       ].join("\n"));
     }
-    progress(options.llm ? "Calling LLM init agent" : "Writing blank human-reviewed contract");
+    progress(options.llm ? "Calling LLM init agent" : "Writing blank contract for review");
     const contract = await writeInitialContract(root, repoIndex, llm, {
       appUrl: options.url,
       localUrl: options.localUrl,
@@ -928,9 +936,7 @@ program
       targetRoot: root,
       command: options.command,
       args: options.arg,
-      env: buildAgentEnvironment(agentKind, {
-        credentialEnvNames: selectedRoleCredentialEnvNames(contract, selectedRoles)
-      })
+      env: buildDelegatedInvocationEnvironment(agentKind, selectedRoleCredentialEnvNames(contract, selectedRoles))
     });
     console.log(result.stdout);
     if (result.stderr) console.error(result.stderr);

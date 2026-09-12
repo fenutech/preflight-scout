@@ -311,6 +311,78 @@ select {
   color: var(--lime);
 }
 
+.agent-entry {
+  margin: 16px 0 0;
+  color: #a5aaa7;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.agent-entry a {
+  color: var(--lime);
+  overflow-wrap: anywhere;
+}
+
+.agent-setup-actions {
+  align-items: center;
+  gap: 14px 22px;
+}
+
+.button.agent-setup-button {
+  min-width: 0;
+  border-radius: 999px;
+  padding: 15px 23px;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.agent-setup-button .copy-success-icon,
+.agent-setup-button[data-copied="true"] .copy-icon {
+  display: none;
+}
+
+.agent-setup-button[data-copied="true"] .copy-success-icon {
+  display: block;
+}
+
+.agent-manual-link {
+  color: #b5bcb8;
+  font-size: 13px;
+  text-underline-offset: 4px;
+}
+
+.agent-manual-link:hover,
+.agent-manual-link:focus-visible {
+  color: var(--lime);
+}
+
+.agent-setup-note {
+  margin: 12px 0 0;
+  color: #a5aaa7;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.agent-copy-fallback {
+  margin-top: 16px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.agent-copy-fallback textarea {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.6;
+  resize: vertical;
+}
+
 .quick-install {
   position: relative;
   margin: 24px 0 0;
@@ -750,6 +822,7 @@ select {
 
 .site-footer nav {
   display: flex;
+  flex-wrap: wrap;
   gap: 24px;
 }
 
@@ -785,7 +858,7 @@ select {
   letter-spacing: -0.048em;
 }
 
-.subpage-intro > p:last-child,
+.subpage-intro > p:not(.eyebrow),
 .not-found > p {
   max-width: 790px;
   margin: 0;

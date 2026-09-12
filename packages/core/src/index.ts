@@ -6,6 +6,7 @@ export * from "./fs.js";
 export * from "./git-diff.js";
 export * from "./impact-mapper.js";
 export * from "./llm.js";
+export * from "./model-policy.js";
 export * from "./mission-planner.js";
 export * from "./pipeline.js";
 export * from "./process-tree.js";

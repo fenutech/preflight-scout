@@ -67,7 +67,8 @@ review signal.
   repository variable and provider secret are both configured.
 - `Release Candidate`: a manual, non-publishing validation workflow that checks
   versions, runs the full suite, produces checksummed candidate artifacts, and
-  exercises npm's dry-run path.
+  exercises npm's dry-run path. Its deterministic installation smoke does not
+  replace real-agent QA through a clean installation of those artifacts.
 - `Prepare release branch`: a maintainer supplies the next stable SemVer.
   The workflow updates every lockstep version surface, promotes the changelog,
   creates `codex/release-vX.Y.Z`, dispatches `CI` for its commit, and returns a
@@ -107,6 +108,91 @@ approval, and any external marketplace submission remain explicit maintainer
 decisions. The preparation and release-candidate workflows cannot publish.
 Publish only from a reviewed public tag through the protected workflow in the
 [release checklist](release-checklist.md).
+
+Before a package release, install the exact packed candidate into a clean,
+private npm prefix and run real LLM-driven analysis and browser QA through
+that installed CLI. Record the reviewed source commit, tarball hashes,
+installed package versions, and inspected evidence. A source-checkout run,
+successful pack/dry-run, or mocked CI smoke alone does not satisfy this gate.
+Repeat relevant verification when candidate code or package contents change.
+See [candidate validation and publication](candidate-testing.md) for the procedure.
+This uses the existing tarballs and install tools; no custom registry,
+permanent test infrastructure, or public prerelease is required. The protected
+official stable publication workflow remains a separate authorized action.
+
+## Website and agent discovery
+
+The website is the static Next.js export in `apps/site/out`. Cloudflare Pages
+builds it through the native Git connection to the public repository, and
+protected `main` supplies production. Preview builds follow the project's
+configured branch policy; opening a pull request does not guarantee a preview.
+Keep the credential-free root `wrangler.json`; do not replace this path with
+Direct Upload, a repository token, or an extra deployment workflow. A
+website-only change does not require an npm or plugin release.
+
+If the branch policy skips a reviewed candidate, open that skipped deployment's
+**Details > Manage deployment > Retry deployment** to build a native Git
+preview. Confirm that the resulting deployment uses the exact reviewed commit.
+The retry is a one-off build; it does not enable automatic previews for later
+commits on that branch. Repeat for a newer reviewed candidate when needed.
+Keep the configured branch policy and native Git path; do not enable all
+branches or replace the deployment mechanism just to test a candidate.
+
+The homepage and footer expose [the agent index](https://preflightscout.com/llms.txt).
+The primary action on the homepage and install page copies an agent setup
+request pointing to [the setup instructions](https://preflightscout.com/agent-setup/prompt.md).
+The button provides visible copy feedback and a selectable prompt if both
+clipboard methods fail. `docs/agent-setup-prompt.md` is the setup template;
+the build replaces its release token from `apps/site/package.json`. Never
+hardcode a separate installation version in the component or generated file.
+Its short list leads to [the plain Markdown guide](https://preflightscout.com/agent-guide.md),
+installation, the released skill, and focused references. The index is a
+discovery aid; it does not promise automatic crawler or agent support.
+`docs/agent-guide.md` is the only guide source. `sync-site-assets.mjs` copies
+it into the ignored public build input alongside the canonical sample report
+and rendered setup guide before both development and production builds. Edit the source guide, not its
+generated copy. Keep the index below 4 KiB and the guide below 16 KiB so agents
+can load onboarding without a large context cost. Link to detailed references
+instead of embedding their full content.
+Keep setup instructions below 16 KiB, limited to idempotent installation and
+verification. They must distinguish local setup from later authorized QA.
+
+Build with `pnpm --filter @preflight-scout/site build`, then run
+`pnpm check:site`. After Chromium is installed, run `pnpm test:site:browser`
+for the maintained onboarding, copy fallback, desktop/mobile, and text-route
+smoke. It serves the export on an ephemeral loopback port and captures copy
+requests inside an isolated browser context without replacing the operator's
+system clipboard. The static verifier checks source/export parity, context budgets,
+local and source-document link targets, static discovery links, response-type
+headers, SEO, and the existing security boundaries. Inspect desktop and mobile
+routes and copy controls in a real browser. For an authorized deployment,
+inspect the PR preview, follow the normal reviewed-PR merge rules, and verify
+the production commit, routes, guides, and edge headers. See the
+[release checklist](release-checklist.md) for the complete publication gates.
+
+Keep `Cache-Control: no-transform` on the public site. Cloudflare email
+obfuscation can mistake scoped npm names for email addresses and replace
+`@preflight-scout/cli@VERSION` with an unreadable link in raw HTML. A browser
+may decode that link; a coding agent fetching instructions must not need to.
+[Cloudflare documents this header as an obfuscation opt-out](https://developers.cloudflare.com/waf/tools/scrape-shield/email-address-obfuscation/).
+The global `_headers` rule retains normal `public, max-age=0, must-revalidate`
+caching. The fingerprinted `/_next/static/*` rule detaches that value before
+setting its existing immutable lifetime plus `no-transform`, because
+[matching Pages header rules otherwise combine values](https://developers.cloudflare.com/pages/configuration/headers/).
+Do not enable a decode script or add Cloudflare credentials to work around it.
+
+After building the exact reviewed website revision, verify each deployed
+preview with `node apps/site/scripts/check-production.mjs https://DEPLOYMENT.pages.dev`.
+After the authorized merge, run `node apps/site/scripts/check-production.mjs`
+against the canonical production origin. This read-only HTTP check compares
+visible npm commands, every copy value, the manual prompt, and all three agent
+text endpoints against the export without executing JavaScript. It rejects
+email-obfuscation markup or scripts, wrong MIME types, missing `no-transform`,
+changed cache lifetimes, and stale fingerprinted CSS. It requires no tokens.
+Run it against the custom domain as well as the preview: zone transformations
+can differ. Keep browser QA for the interactive copy flow; raw HTTP and browser
+checks cover different failure modes. Deployment is not verified until both
+pass on the intended commit.
 
 ## Labels
 

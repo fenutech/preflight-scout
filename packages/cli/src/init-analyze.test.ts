@@ -19,6 +19,23 @@ describe("init followed by analyze", () => {
     await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
   });
 
+  it("prints a compact init inventory by default and requires opt-in for the full index", async () => {
+    const parent = await mkdtemp(path.join(tmpdir(), "preflight-scout-init-summary-"));
+    tempDirs.push(parent);
+    const demo = await createGenericDemoRepo({ output: path.join(parent, "repo") });
+    await Promise.all(Array.from({ length: 45 }, (_, index) => writeFile(path.join(demo.root, `source-${index}.ts`), "export {};")));
+    const compact = await runCli(["init", "--root", demo.root, "--dry-run"], { ...process.env, PREFLIGHT_SCOUT_LLM_PROVIDER: "none" });
+    const summary = JSON.parse(compact.stdout.slice(0, compact.stdout.lastIndexOf("\nRun without")));
+    expect(summary.sampleFiles).toHaveLength(30);
+    expect(summary.fileInventoryCoverage.includedFiles).toBeGreaterThan(45);
+    expect(summary).not.toHaveProperty("files");
+    expect(summary).not.toHaveProperty("manifests");
+    const full = await runCli(["init", "--root", demo.root, "--dry-run", "--full-index"], { ...process.env, PREFLIGHT_SCOUT_LLM_PROVIDER: "none" });
+    const inventory = JSON.parse(full.stdout.slice(0, full.stdout.lastIndexOf("\nRun without")));
+    expect(inventory.files.length).toBe(summary.fileInventoryCoverage.includedFiles);
+    expect(inventory.manifests).toHaveProperty("package.json");
+  });
+
   it("replaces an unsafe init-model output directory and completes analysis in the guarded default", async () => {
     const parent = await mkdtemp(path.join(tmpdir(), "preflight-scout-init-analyze-"));
     tempDirs.push(parent);

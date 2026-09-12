@@ -46,7 +46,7 @@ export function InstrumentReport({ compact = false }) {
         <div className="report-heading">
           <p>PRE-FLIGHT REPORT</p>
           <div className="report-risk"><span>Risk</span><strong>{sampleReport.risk.toUpperCase()}</strong></div>
-          <h2>{sampleReport.releaseDecision.status === "do_not_ship_yet" ? "DO NOT SHIP YET" : "READY FOR HUMAN REVIEW"}</h2>
+          <h2>{sampleReport.releaseDecision.status === "do_not_ship_yet" ? "DO NOT SHIP YET" : "READY FOR REVIEW"}</h2>
         </div>
         <div className="mission-results">
           {sampleReport.browserMissions.map((mission) => <MissionResult key={mission.id} mission={mission} />)}
@@ -57,7 +57,7 @@ export function InstrumentReport({ compact = false }) {
           <span className="failed">Failed: <strong>{sampleReport.counts.failed}</strong></span>
           <span>Blocked: <strong>{sampleReport.counts.blocked}</strong></span>
         </div>
-        <p className="instrument-foot">LOCAL EVIDENCE <span aria-hidden="true">·</span> HUMAN REVIEW REQUIRED</p>
+        <p className="instrument-foot">LOCAL EVIDENCE <span aria-hidden="true">·</span> APPLY YOUR RELEASE POLICY</p>
       </div>
     </section>
   );

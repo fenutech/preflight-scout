@@ -1,5 +1,6 @@
 import { BrowserIcon, CheckCircleIcon, RobotIcon, TerminalWindowIcon } from "@phosphor-icons/react/ssr";
 import { CommandLine } from "@/components/CopyCommand";
+import { AgentSetup } from "@/components/AgentSetup";
 import { pageMetadata, RELEASE_VERSION } from "@/lib/site";
 
 export const metadata = pageMetadata({
@@ -46,9 +47,11 @@ export default function InstallPage() {
         <p className="eyebrow">INSTALLATION / TWO PARTS</p>
         <h1>Install Preflight Scout for Codex or Claude Code.</h1>
         <p>The skill tells Codex or Claude Code how to use Preflight Scout. The CLI reads the diff, runs Chromium, and saves the report.</p>
+        <p>For AI agents, the <a href="/agent-guide.md">plain Markdown guide</a> covers setup, focused context, analysis reuse, and evidence.</p>
+        <AgentSetup manualHref="#manual-install" />
       </header>
 
-      <section className="release-check" aria-labelledby="registry-check-title">
+      <section className="release-check" id="manual-install" aria-labelledby="registry-check-title">
         <CheckCircleIcon size={36} weight="thin" aria-hidden="true" />
         <div>
           <h2 id="registry-check-title">Confirm the release exists before installing</h2>

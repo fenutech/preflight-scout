@@ -4,7 +4,7 @@ import { lstat, mkdir, realpath, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from "playwright";
 import { BrowserDecisionSchema, browserCredentialEnvName, isActionApproved, loadApprovals, redactContract, redactText, resolvePackageRuntimeIdentity, writeTextEnsuringDir, type ApprovalState, type LLMClient, type MissionRunResult, type QAContract, type QAFlowMission, type RoleCredential, type StepResult } from "@preflight-scout/core";
-import { bindReviewedAssertionDecision, executeDecision } from "./actions.js";
+import { bindReviewedAssertionDecision, executeDecision, normalizeBaseUrl } from "./actions.js";
 import { BrowserNavigationBoundary } from "./navigation.js";
 import { observe, screenshot } from "./observe.js";
 import { canonicalizeStorageStatePath, loadStorageStateInput, validateStorageStateInput, writeStorageStateMetadata } from "./storage-state.js";
@@ -138,7 +138,25 @@ export async function runBrowserMission(mission: QAFlowMission, options: Browser
   try {
     options.progress?.(`Opening ${mission.startPath ?? "/"} for mission ${mission.id}`);
     try {
-      await page.goto(startUrl, { waitUntil: "domcontentloaded" });
+      const initialNavigation = reviewedInitialNavigation(mission, startUrl, navigation.baseUrl);
+      if (initialNavigation) {
+        // Execute the exact reviewed step through the normal policy and origin
+        // checks. Bootstrap navigation must not grant permission or credit a
+        // later goto simply because the browser already shows its target.
+        const result = await executeDecision(page, initialNavigation, options, approvals, initialNavigation.missionStepId, {
+          mission,
+          missionRole: mission.role,
+          navigation
+        });
+        results.push(result);
+        if (result.status !== "passed") {
+          finalResult = { missionId: mission.id, status: result.status === "failed" ? "failed" : "blocked", results, artifacts };
+          return finalResult;
+        }
+        coveredStepIds.add(initialNavigation.missionStepId);
+      } else {
+        await page.goto(startUrl, { waitUntil: "domcontentloaded" });
+      }
     } catch (error) {
       if (!navigation.violation) throw error;
       results.push({ stepId: "navigation-boundary", status: "blocked", message: navigation.violation.message });
@@ -184,7 +202,8 @@ export async function runBrowserMission(mission: QAFlowMission, options: Browser
       artifacts.push(observationScreenshot);
       options.progress?.(`Mission ${mission.id}: waiting for LLM browser decision ${turn}/${maxTurns}`);
       const decision = bindReviewedAssertionDecision(
-        await decideNextAction(options.llm, mission, options.contract, approvals, observation, observationScreenshot, results),
+        await decideNextAction(options.llm, mission, options.contract, approvals, observation, observationScreenshot, results,
+          describeMissionProgress(mission, coveredStepIds, freshCompletionAssertionStepIds, loginSubmissionObserved)),
         mission
       );
       const stepId = `turn-${turn}`;
@@ -536,6 +555,64 @@ function isPathWithin(parent: string, candidate: string): boolean {
   return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
 }
 
+function reviewedInitialNavigation(mission: QAFlowMission, startUrl: string, baseUrl: string): (BrowserDecision & { missionStepId: string }) | undefined {
+  // Approval gates have already been checked before Chromium starts. Other
+  // preceding steps still need their own execution, including observations.
+  const step = mission.steps.find((candidate) => candidate.action !== "approval_gate");
+  if (step?.action !== "goto" || !step.target) return undefined;
+  try {
+    if (new URL(step.target, normalizeBaseUrl(baseUrl)).toString() !== startUrl) return undefined;
+  } catch {
+    return undefined;
+  }
+  return {
+    thought: "Execute the reviewed initial navigation.",
+    action: "goto",
+    missionStepId: step.id,
+    target: step.target,
+    reason: `Completed reviewed initial navigation for mission step "${step.id}".`
+  };
+}
+
+interface BrowserMissionProgress {
+  coveredStepIds: string[];
+  remainingExecutableStepIds: string[];
+  completionAssertionStepIds: string[];
+  freshCompletionAssertionStepIds: string[];
+  pendingCompletionAssertionStepIds: string[];
+  loginRequired: boolean;
+  loginSubmissionObserved: boolean;
+  readyForCompletionCheck: boolean;
+}
+
+function describeMissionProgress(
+  mission: QAFlowMission,
+  coveredStepIds: ReadonlySet<string>,
+  freshCompletionAssertionStepIds: ReadonlySet<string>,
+  loginSubmissionObserved: boolean
+): BrowserMissionProgress {
+  const remainingExecutableStepIds = mission.steps
+    .filter((step) => step.action !== "approval_gate" && step.action !== "observe" && step.action !== "login" && !coveredStepIds.has(step.id))
+    .map((step) => step.id);
+  const completionAssertionStepIds = completionAssertionsAfterFinalStateChange(mission).map((step) => step.id);
+  const pendingCompletionAssertionStepIds = completionAssertionStepIds.filter((id) => !freshCompletionAssertionStepIds.has(id));
+  const loginRequired = mission.steps.some((step) => step.action === "login");
+  return {
+    coveredStepIds: mission.steps.filter((step) => coveredStepIds.has(step.id)).map((step) => step.id),
+    remainingExecutableStepIds,
+    completionAssertionStepIds,
+    freshCompletionAssertionStepIds: completionAssertionStepIds.filter((id) => freshCompletionAssertionStepIds.has(id)),
+    pendingCompletionAssertionStepIds,
+    loginRequired,
+    loginSubmissionObserved,
+    // This invites the existing completion validator; it never grants a pass
+    // or substitutes for final assertion/authentication revalidation.
+    readyForCompletionCheck: remainingExecutableStepIds.length === 0
+      && pendingCompletionAssertionStepIds.length === 0
+      && (!loginRequired || loginSubmissionObserved)
+  };
+}
+
 async function decideNextAction(
   llm: LLMClient,
   mission: QAFlowMission,
@@ -543,7 +620,8 @@ async function decideNextAction(
   approvals: ApprovalState,
   observation: BrowserObservation,
   observationScreenshot: string,
-  results: StepResult[]
+  results: StepResult[],
+  missionProgress: BrowserMissionProgress
 ): Promise<BrowserDecision> {
   return llm.completeJson<BrowserDecision>([
     {
@@ -579,11 +657,13 @@ Generic browser controls:
 
 Do not guess destructive actions.
 If credentials, data, permissions, or safe action approval are missing, return blocked.
-Approval gates must name an exact contract action label. The approvedActions input lists labels already approved by a human, and mission approval gates are validated before the browser starts. Continue through a matching approved gate. A missing locator is not an approval gate: discover safe controls from the live observation instead.
+Approval gates must name an exact contract action label. The approvedActions input lists labels explicitly authorized and recorded locally, and mission approval gates are validated before the browser starts. Continue through a matching approved gate without requesting the same authorization again. A missing locator is not an approval gate: discover safe controls from the live observation instead.
 If a previous browser action failed, recover like a human tester: use the screenshot, observation, and error to choose another action or explicitly finish_fail/blocked.
 If a previous fill action passed and the same field is still visibly filled, move to the next required credential or assertion instead of filling the same field again.
 For login missions, authenticate the configured existing user only from the reviewed mission startPath. Do not discover or substitute another login URL. After entering a credential field successfully, use the observed page state to move toward the next required credential, safe submit action, and exact reviewed signed-in assertion instead of repeating the same completed action.
 Every goto, click, fill, or press must name the exact reviewed missionStepId it implements. For non-login steps, its target must match the reviewed target; do not substitute an unrelated live control. Login steps may discover live login controls, but remain bound to the exact reviewed login step id and contract login permission.
+When the initial page navigation matches the first reviewed goto, the runner executes that exact step through the safety checks before your first decision and records its step id in previousResults. Do not repeat that completed navigation just for coverage. A different or later goto still requires its own explicit decision.
+missionProgress is the runner's authoritative record of reviewed step coverage. previousResults.stepId often identifies a browser turn, not a reviewed mission step. Choose an outstanding remainingExecutableStepId or pendingCompletionAssertionStepId instead of repeating a covered, fresh assertion. Discovery-only observe steps and validated approval gates do not require executable completion coverage. If readyForCompletionCheck is true and the current observation shows no contradiction, return finish_pass now; do not spend more turns reasserting the same completed step. This requests the existing final validation, which can still block on changed assertions or unverified login state.
 Assert actions must name an exact reviewed assert_visible/assert_text missionStepId. Omit target and value for assert actions: the runner binds and executes the reviewed target and expected text, not an LLM substitute. finish_pass is refused until every executable reviewed step is covered and every declared completion assertion after the mission's final reviewed state-changing step has passed since the latest goto, click, fill, press, wait, scroll, or viewport change. If a completion assertion ran early, rerun it after the last browser-state change. Intermediate assertions remain useful evidence but cannot finish the mission. Login missions additionally require the exact configured signed-in marker, a safe credential-form submission, a changed cookie/storage session, and disappearance of the credential form.
 currentObservation.interactive is a bounded DOM locator inventory from the rendered document, not an accessibility-tree dump. Presence means an element was rendered for locator use at capture time, but does not prove accessibility-tree exposure; omission cannot prove absence from the accessibility tree. If the mission requires accessibility-tree evidence that an exact reviewed assertion cannot establish, return blocked and leave that check for manual assistive-technology review.
 Before returning finish_fail because an expected action is missing, carefully inspect currentObservation.text, currentObservation.interactive, and the screenshot. Do not claim an element is absent when it appears in the observation, and do not infer accessibility-tree absence from omission alone.
@@ -600,6 +680,7 @@ Do not use hardcoded scripts. Navigate like a human tester using the live page o
           currentObservation: observation,
           attachedScreenshot: observationScreenshot,
           previousResults: sanitizedStepResults(results),
+          missionProgress,
           credentialAvailability: credentialAvailability(contract, mission.role)
         },
         null,
@@ -851,7 +932,7 @@ function checkMissionApprovalGates(mission: QAFlowMission, contract: QAContract,
     if (!isActionApproved(approvals, step.target)) {
       return {
         stepId: step.id,
-        message: `Approval required for action "${step.target}". Run preflight-scout approve --action "${step.target}" after human review.`
+        message: `Approval required for action "${step.target}". Run preflight-scout approve --action "${step.target}" only when this exact action is already authorized; otherwise obtain the missing authorization.`
       };
     }
   }

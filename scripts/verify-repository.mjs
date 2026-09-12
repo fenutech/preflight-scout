@@ -40,11 +40,17 @@ const requiredFiles = [
   "apps/site/public/favicon.ico",
   "apps/site/public/licenses/fonts-OFL.txt",
   "apps/site/public/licenses/phosphor-MIT.txt",
+  "apps/site/public/llms.txt",
   "apps/site/public/opengraph-image.png",
   "apps/site/public/site.js",
   "apps/site/scripts/check-static-export.mjs",
+  "apps/site/scripts/check-browser.mjs",
+  "apps/site/scripts/check-production.mjs",
+  "apps/site/scripts/edge-contract.mjs",
+  "apps/site/scripts/edge-contract.test.mjs",
   "apps/site/scripts/strip-next-runtime.mjs",
   "apps/site/scripts/sync-sample-report.mjs",
+  "apps/site/scripts/sync-site-assets.mjs",
   "apps/site/src/app/example-report/page.jsx",
   "apps/site/src/app/globals.css",
   "apps/site/src/app/install/page.jsx",
@@ -56,6 +62,7 @@ const requiredFiles = [
   "apps/site/src/app/security/page.jsx",
   "apps/site/src/app/sitemap.js",
   "apps/site/src/components/CopyCommand.jsx",
+  "apps/site/src/components/AgentSetup.jsx",
   "apps/site/src/components/InstrumentReport.jsx",
   "apps/site/src/components/SiteFooter.jsx",
   "apps/site/src/components/SiteHeader.jsx",
@@ -74,6 +81,8 @@ const requiredFiles = [
   "SUPPORT.md",
   "THIRD_PARTY_NOTICES.md",
   "docs/maintainer-guide.md",
+  "docs/agent-guide.md",
+  "docs/agent-setup-prompt.md",
   "scripts/install-source-cli.mjs",
   "scripts/npm-global-install-smoke-lib.mjs",
   "scripts/npm-global-install-smoke.mjs",
@@ -211,10 +220,13 @@ const siteManifest = await readJson("apps/site/package.json");
 if (siteManifest.name !== "@preflight-scout/site" || siteManifest.private !== true || siteManifest.version !== rootManifest.version) {
   failures.push("The private website workspace must match the Preflight Scout release identity and version.");
 }
-if (siteManifest.scripts?.build !== "next build" || siteManifest.scripts?.check !== "node scripts/check-static-export.mjs") {
+if (siteManifest.scripts?.build !== "next build" || siteManifest.scripts?.check !== "node --test scripts/edge-contract.test.mjs && node scripts/check-static-export.mjs") {
   failures.push("The website must build as a static Next.js export and run its export verifier.");
 }
-if (siteManifest.dependencies?.next !== "16.2.10") {
+if (siteManifest.scripts?.prebuild !== "node scripts/sync-site-assets.mjs" || siteManifest.scripts?.predev !== "node scripts/sync-site-assets.mjs") {
+  failures.push("Website builds and development must sync the canonical sample report and agent guide.");
+}
+if (siteManifest.dependencies?.next !== "16.3.3") {
   failures.push("The website must pin the reviewed Next.js release.");
 }
 

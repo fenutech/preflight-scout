@@ -47,6 +47,12 @@ release, or marketplace submission.
 - [ ] Install the packed CLI globally with npm in a clean temporary prefix, run
       the installed command, install Chromium explicitly, and exercise the
       browser-aware smoke path. Do not use pnpm for this consumer check.
+- [ ] Complete [installed-candidate agent QA](candidate-testing.md) with the exact
+      packed artifacts in a retained private prefix. Verify the installed
+      package graph, use the matching candidate skill, and run real LLM-driven
+      analysis and browser checks through that installed CLI. Source wrappers,
+      pack/dry-run success, and deterministic or mocked smoke tests alone do
+      not satisfy this gate.
 - [ ] Follow the source install from a clean, stable checkout using
       `pnpm install:source-cli -- --bin-dir <temporary-bin>`.
 - [ ] Confirm the installed wrapper pins the intended absolute Node executable
@@ -89,6 +95,16 @@ release, or marketplace submission.
       headings, social metadata, internal links, sitemap membership, and
       home-only site-name markup; confirm the sample report and Pages aliases
       return `noindex` without being blocked in `robots.txt`.
+- [ ] Confirm the visible agent entry links to `/llms.txt`, its compact index
+      leads to `/agent-guide.md`, and the exported guide exactly matches
+      `docs/agent-guide.md`. Verify plain-text/Markdown response types, readable
+      output without JavaScript, current documentation links, and no private
+      paths, credentials, repository context, or session history.
+- [ ] Test the primary onboarding button on home and install: it copies the
+      exact setup request for `/agent-setup/prompt.md`, shows success, and
+      exposes a selectable prompt if clipboard access fails. Confirm setup
+      instructions use the website's exact release pin, verify publication
+      before install, preserve existing configurations, and stay within setup.
 - [ ] Verify HTTP-to-HTTPS, `www`-to-apex, and trailing-slash redirects before
       submitting the sitemap to Google Search Console and Bing Webmaster Tools.
 - [ ] After registry publication, confirm
@@ -112,6 +128,7 @@ pnpm typecheck
 pnpm test:ci
 pnpm playwright:install
 pnpm test:browser
+pnpm test:site:browser
 pnpm audit --prod --audit-level high
 pnpm check:repo
 pnpm check:package-assets
@@ -138,6 +155,11 @@ pnpm -r --filter './packages/*' publish --access public --dry-run --no-git-check
 - [ ] Run the generic demo through the installed skill, review its analysis,
       execute with `--analysis-dir`, and confirm the reviewed impact-map and
       mission hashes remain unchanged.
+- [ ] Inspect `report-summary.json`, mission results, and relevant browser
+      evidence from the installed candidate's real-agent run. Verify a
+      meaningful passing journey and a known-negative outcome; distinguish
+      an expected application failure from a Scout defect. A zero exit code
+      alone does not prove that checks ran or produced the correct result.
 - [ ] Confirm missing, foreign-repository, commit-stale, contract-stale,
       mission-tampered, result-tampered, and evidence-tampered analysis
       directories fail before model or browser execution.
@@ -159,11 +181,22 @@ pnpm -r --filter './packages/*' publish --access public --dry-run --no-git-check
 
 - [ ] Run the non-publishing `Release Candidate` workflow for the exact version.
 - [ ] Record checksums for package tarballs and the Agent Skill archive.
+- [ ] Retain a verification record linking the exact source commit and
+      tarball hashes to the clean installed package versions, agent/model
+      settings, exercised missions, and inspected outcomes. Keep raw logs,
+      auth state, and private paths out of public artifacts. Rebuild, reinstall,
+      and repeat relevant real-agent checks after code or package-content changes.
 - [ ] Review release notes, known limitations, upgrade notes, and license
       boundaries.
 - [ ] Ask the assigned reviewer to verify installation, security boundaries,
       and the sample report, and wait for a clear positive signal before
       merging the release pull request.
+
+The candidate gate uses local packed artifacts. A public npm prerelease is
+optional for warranted external testing with explicit publication authorization;
+it is not a requirement for normal pull requests. The current official
+publication workflow remains stable-only. Do not introduce a custom registry,
+test package, or alternate publication path to complete this checklist.
 
 ## Authorized publication only
 
@@ -171,8 +204,14 @@ Stop here unless the maintainer explicitly authorizes each external action.
 
 ### Verify the website deployment
 
-- [ ] When the release changes `apps/site`, inspect the Cloudflare preview
-      deployment from the release pull request before merging it.
+- [ ] When the release changes `apps/site`, inspect a Cloudflare preview of
+      the exact reviewed pull-request commit before merging it. Preview builds
+      follow the configured branch policy; a pull request alone may be skipped.
+      For a skipped candidate, open its deployment's **Details > Manage
+      deployment > Retry deployment** to build a native Git preview, then
+      verify its commit. This is a one-off retry, so later commits may need
+      another retry. Keep the branch policy and native Git connection; do not
+      enable all branches or replace the deployment path just to test.
 - [ ] After merge, confirm the production deployment came from the expected
       public `main` commit. A green Pages build does not authorize npm
       publication or a public announcement.
@@ -181,6 +220,20 @@ Stop here unless the maintainer explicitly authorizes each external action.
       query string, and canonical/trailing-slash behavior is unchanged.
 - [ ] Confirm the `pages.dev` alias remains noindexed and GitHub contains no
       Cloudflare API token.
+- [ ] Fetch `/llms.txt` and `/agent-guide.md` from production, verify their
+      response types and content against the reviewed static export, and
+      follow the visible homepage and installation-page agent links.
+- [ ] Fetch `/agent-setup/prompt.md` and verify its exact pinned commands and
+      Markdown response type against the build. Copy the onboarding prompt
+      from both production entry points.
+- [ ] From the exact reviewed build, run
+      `node apps/site/scripts/check-production.mjs https://DEPLOYMENT.pages.dev`
+      against the preview and `node apps/site/scripts/check-production.mjs`
+      against production. Raw npm install commands and copy values must remain
+      exact without JavaScript decoding; all agent text endpoints must match
+      the export. Confirm `no-transform` preserves those responses and the
+      page/immutable-asset cache lifetimes remain unchanged. A green build or
+      decoded browser view alone does not establish this.
 
 ### Release from the public repository
 
