@@ -30,6 +30,11 @@ export const PUBLISH_ORDER = Object.freeze([
 const SCRIPT_NAME = "publication-artifact.mjs";
 const MANIFEST_NAME = "publication-manifest.json";
 const CHECKSUMS_NAME = "SHA256SUMS";
+const REGISTRY_PROPAGATION_TIMEOUT_MS = 5 * 60_000;
+const REGISTRY_POLL_INTERVAL_MS = 5_000;
+const REGISTRY_REQUEST_TIMEOUT_MS = 10_000;
+const MAX_REGISTRY_RESPONSE_BYTES = 1024 * 1024;
+const MAX_VERIFICATION_ATTEMPTS = 61;
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
 export async function preparePublicationArtifact({ sourceDirectory, outputDirectory, version, commit }) {
@@ -149,8 +154,11 @@ export async function publishPublicationArtifact({
   fetchImpl = fetch,
   spawnImpl = spawnSync,
   npmCommand,
-  retryDelay = async () => new Promise((resolve) => setTimeout(resolve, 2000)),
-  verificationAttempts = 6
+  retryDelay = async (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  verificationAttempts = MAX_VERIFICATION_ATTEMPTS,
+  verificationTimeoutMs = REGISTRY_PROPAGATION_TIMEOUT_MS,
+  registryRequestTimeoutMs = REGISTRY_REQUEST_TIMEOUT_MS,
+  now = () => performance.now()
 }) {
   if (!new Set(["bootstrap-token", "trusted-publishing"]).has(mode)) {
     throw new Error("Publication mode must be bootstrap-token or trusted-publishing.");
@@ -161,13 +169,17 @@ export async function publishPublicationArtifact({
   if (mode === "trusted-publishing" && env.NODE_AUTH_TOKEN?.trim()) {
     throw new Error("trusted-publishing mode refuses NODE_AUTH_TOKEN; npm must authenticate only with OIDC.");
   }
+  assertBoundedInteger(verificationAttempts, MAX_VERIFICATION_ATTEMPTS, "Verification attempts");
+  assertBoundedInteger(verificationTimeoutMs, REGISTRY_PROPAGATION_TIMEOUT_MS, "Registry propagation timeout");
+  assertBoundedInteger(registryRequestTimeoutMs, REGISTRY_REQUEST_TIMEOUT_MS, "Registry request timeout");
 
   const root = path.resolve(directory);
   const { manifest, registryIntegrities } = await checkPublicationRegistry({
     directory: root,
     version,
     commit,
-    fetchImpl
+    fetchImpl,
+    registryRequestTimeoutMs
   });
   const npm = npmCommand ?? await resolveNpm(root);
   const versionResult = spawnImpl(npm, ["--version"], { encoding: "utf8", env, shell: false });
@@ -175,12 +187,16 @@ export async function publishPublicationArtifact({
     throw new Error(`npm 11.5.1 or newer is required for trusted publication; found ${versionResult.stdout?.trim() || "an unusable npm"}.`);
   }
 
+  let remainingVerificationMs = verificationTimeoutMs;
   for (const name of PUBLISH_ORDER) {
     const item = manifest.packages.find((candidate) => candidate.name === name);
     const existing = registryIntegrities.get(name);
     if (existing !== undefined) {
       console.log(`Verified existing ${name}@${version}; exact integrity matches, skipping.`);
       continue;
+    }
+    if (remainingVerificationMs <= 0) {
+      throw new Error(`Registry propagation budget is exhausted; ${name}@${version} was not published.`);
     }
 
     const result = spawnImpl(npm, [
@@ -193,24 +209,36 @@ export async function publishPublicationArtifact({
     if (result.status !== 0) throw new Error(`npm publish failed for ${name}@${version} with exit code ${result.status}.`);
 
     let published;
+    const verificationStarted = now();
     for (let attempt = 1; attempt <= verificationAttempts; attempt += 1) {
-      published = await registryIntegrity(fetchImpl, name, version);
+      const remainingMs = remainingVerificationMs - (now() - verificationStarted);
+      if (remainingMs <= 0) break;
+      published = await registryIntegrity(fetchImpl, name, version, Math.min(registryRequestTimeoutMs, remainingMs));
       if (published !== undefined) break;
-      if (attempt < verificationAttempts) await retryDelay();
+      const waitMs = Math.min(REGISTRY_POLL_INTERVAL_MS, remainingVerificationMs - (now() - verificationStarted));
+      if (attempt < verificationAttempts && waitMs > 0) {
+        if (attempt === 1) console.log(`npm accepted ${name}@${version}; waiting for exact registry integrity within the shared propagation budget.`);
+        await retryDelay(waitMs);
+      }
+    }
+    remainingVerificationMs -= Math.max(0, now() - verificationStarted);
+    if (published === undefined) {
+      throw new Error(`${name}@${version} was accepted by npm but its candidate integrity was not observable within the bounded registry propagation wait. Preserve this run's artifact; inspect accepted versions before rerunning the failed protected job.`);
     }
     if (published !== item.integrity) {
-      throw new Error(`${name}@${version} was not observable with the candidate integrity after publication.`);
+      throw new Error(`${name}@${version} has different registry integrity after publication.`);
     }
     console.log(`Published and verified ${name}@${version}.`);
   }
 }
 
-export async function checkPublicationRegistry({ directory, version, commit, fetchImpl = fetch }) {
+export async function checkPublicationRegistry({ directory, version, commit, fetchImpl = fetch, registryRequestTimeoutMs = REGISTRY_REQUEST_TIMEOUT_MS }) {
+  assertBoundedInteger(registryRequestTimeoutMs, REGISTRY_REQUEST_TIMEOUT_MS, "Registry request timeout");
   const manifest = await verifyPublicationArtifact({ directory, version, commit });
   const registryIntegrities = new Map();
   for (const name of PUBLISH_ORDER) {
     const item = manifest.packages.find((candidate) => candidate.name === name);
-    const existing = await registryIntegrity(fetchImpl, name, version);
+    const existing = await registryIntegrity(fetchImpl, name, version, registryRequestTimeoutMs);
     if (existing !== undefined && existing !== item.integrity) {
       throw new Error(`${name}@${version} already exists with different registry integrity.`);
     }
@@ -286,26 +314,76 @@ function digest(contents, algorithm) {
   return `${algorithm}:${createHash(algorithm).update(contents).digest("hex")}`;
 }
 
-async function registryIntegrity(fetchImpl, name, version) {
+function assertBoundedInteger(value, maximum, label) {
+  if (!Number.isSafeInteger(value) || value <= 0 || value > maximum) {
+    throw new Error(`${label} must be an integer between 1 and ${maximum}.`);
+  }
+}
+
+async function registryIntegrity(fetchImpl, name, version, timeoutMs) {
   const url = `${PUBLIC_REGISTRY}/${encodeURIComponent(name)}/${encodeURIComponent(version)}`;
-  const response = await fetchImpl(url, {
-    headers: { accept: "application/json", "user-agent": "preflight-scout-publisher" },
-    redirect: "error"
-  });
-  if (response.status === 404) return undefined;
-  const text = await response.text();
-  if (!response.ok) throw new Error(`Registry lookup for ${name}@${version} failed with HTTP ${response.status}.`);
-  if (text.length > 1024 * 1024) throw new Error(`Registry lookup for ${name}@${version} exceeded 1 MiB.`);
-  let metadata;
+  const label = `Registry lookup for ${name}@${version}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    metadata = JSON.parse(text);
-  } catch {
-    throw new Error(`Registry lookup for ${name}@${version} returned invalid JSON.`);
+    const response = await fetchImpl(url, {
+      headers: { accept: "application/json", "user-agent": "preflight-scout-publisher" },
+      redirect: "error",
+      signal: controller.signal
+    });
+    if (response.status === 404) {
+      await response.body?.cancel();
+      return undefined;
+    }
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error(`${label} failed with HTTP ${response.status}.`);
+    }
+    const text = await readRegistryBody(response, label);
+    let metadata;
+    try {
+      metadata = JSON.parse(text);
+    } catch {
+      throw new Error(`${label} returned invalid JSON.`);
+    }
+    if (!/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(metadata?.dist?.integrity ?? "")) {
+      throw new Error(`${label} returned no valid sha512 integrity.`);
+    }
+    return metadata.dist.integrity;
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error(`${label} timed out after ${Math.ceil(timeoutMs)} ms.`);
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-  if (!/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(metadata.dist?.integrity ?? "")) {
-    throw new Error(`Registry lookup for ${name}@${version} returned no valid sha512 integrity.`);
+}
+
+async function readRegistryBody(response, label) {
+  const contentLength = response.headers.get("content-length");
+  if (contentLength && /^\d+$/.test(contentLength) && Number(contentLength) > MAX_REGISTRY_RESPONSE_BYTES) {
+    await response.body?.cancel();
+    throw new Error(`${label} exceeded 1 MiB.`);
   }
-  return metadata.dist.integrity;
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let text = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > MAX_REGISTRY_RESPONSE_BYTES) {
+        await reader.cancel();
+        throw new Error(`${label} exceeded 1 MiB.`);
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    return text + decoder.decode();
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 async function resolveNpm(artifactRoot) {

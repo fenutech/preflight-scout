@@ -120,6 +120,40 @@ This uses the existing tarballs and install tools; no custom registry,
 permanent test infrastructure, or public prerelease is required. The protected
 official stable publication workflow remains a separate authorized action.
 
+### Recover an interrupted publication
+
+npm can accept a tarball while its exact-version metadata still returns 404
+during processing. The publisher polls every five seconds with a shared
+five-minute propagation budget across all six packages, at most 61 lookups per
+package, ten seconds per request including its body, and a 1 MiB response cap.
+Only absent metadata is retried. A visible integrity mismatch or other lookup
+failure stops the job. The protected publish job retains its 15-minute limit.
+
+If a publication job fails after npm accepted any packages, preserve the exact
+validated artifact from that workflow run, including its manifest and checksum
+file. Inspect the job log to identify accepted packages, wait for their official
+registry metadata to appear, and compare every visible SHA-512 integrity to that
+artifact. The artifact's `check-registry` command checks all six exact versions
+without publishing. It also reports missing versions, so a successful exit alone
+does not prove that every accepted package is visible:
+
+```bash
+node publication-candidate/publication-artifact.mjs check-registry \
+  --directory publication-candidate --version X.Y.Z --commit FULL_TAGGED_SHA
+```
+
+Once the accepted versions are visible with matching integrity, an authorized
+maintainer can rerun the failed jobs of the same workflow run and approve its
+protected environment again. The publisher skips exact matching versions and
+publishes only missing packages from the original artifact; it still checks all
+six versions before publishing any of them. Retain that artifact before its
+two-day upload retention expires. If it is unavailable or any integrity differs,
+stop and investigate; do not rebuild replacement tarballs for the same version,
+move the tag, publish locally, or weaken authentication. This recovery does not
+apply to the separate checklist rule for a tag that fails before any publication.
+GitHub release creation and `plugin-stable` advancement still require the full
+family and both live installation jobs to pass.
+
 ## Website and agent discovery
 
 The website is the static Next.js export in `apps/site/out`. Cloudflare Pages

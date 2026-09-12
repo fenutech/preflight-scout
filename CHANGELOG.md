@@ -6,6 +6,14 @@ All notable changes to Preflight Scout are documented here. This project follows
 
 ## [Unreleased]
 
+### Fixed
+
+- npm publication waits for accepted packages to become visible in the registry
+  within a shared five-minute propagation budget. Registry requests and response
+  bodies are bounded; exact integrity mismatches still stop publication. Recovery
+  guidance preserves the original validated artifact when a run publishes only
+  part of the package family.
+
 ## [0.1.7] - 2026-09-12
 
 ### Added

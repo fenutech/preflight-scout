@@ -270,6 +270,12 @@ Stop here unless the maintainer explicitly authorizes each external action.
 - [ ] Confirm pre-publication validation accepted the exact successful
       `Required` check and rejected any version older than `plugin-stable`, an
       npm `latest` tag, or the latest GitHub release.
+- [ ] If npm accepts a package before a registry-visibility check fails, follow
+      [interrupted publication recovery](maintainer-guide.md#recover-an-interrupted-publication):
+      retain the same run's validated artifact, verify all accepted versions have
+      its exact registry integrity, and rerun only that run's failed jobs through
+      the protected environment. Matching versions are skipped; never rebuild
+      replacement tarballs for a partially published version or move its tag.
 - [ ] Confirm the workflow verifies all six exact versions and each package's
       public `latest` tag, installs the exact CLI on Linux and Windows, and only
       then creates the matching latest GitHub release from the protected tag.
