@@ -111,11 +111,20 @@ Publish only from a reviewed public tag through the protected workflow in the
 ## Website and agent discovery
 
 The website is the static Next.js export in `apps/site/out`. Cloudflare Pages
-builds it through the native Git connection to the public repository: pull
-requests receive previews, and protected `main` supplies production. Keep the
-credential-free root `wrangler.json`; do not replace this path with Direct
-Upload, a repository token, or an extra deployment workflow. A website-only
-change does not require an npm or plugin release.
+builds it through the native Git connection to the public repository, and
+protected `main` supplies production. Preview builds follow the project's
+configured branch policy; opening a pull request does not guarantee a preview.
+Keep the credential-free root `wrangler.json`; do not replace this path with
+Direct Upload, a repository token, or an extra deployment workflow. A
+website-only change does not require an npm or plugin release.
+
+If the branch policy skips a reviewed candidate, open that skipped deployment's
+**Details > Manage deployment > Retry deployment** to build a native Git
+preview. Confirm that the resulting deployment uses the exact reviewed commit.
+The retry is a one-off build; it does not enable automatic previews for later
+commits on that branch. Repeat for a newer reviewed candidate when needed.
+Keep the configured branch policy and native Git path; do not enable all
+branches or replace the deployment mechanism just to test a candidate.
 
 The homepage and footer expose [the agent index](https://preflightscout.com/llms.txt).
 The primary action on the homepage and install page copies an agent setup

@@ -182,8 +182,14 @@ Stop here unless the maintainer explicitly authorizes each external action.
 
 ### Verify the website deployment
 
-- [ ] When the release changes `apps/site`, inspect the Cloudflare preview
-      deployment from the release pull request before merging it.
+- [ ] When the release changes `apps/site`, inspect a Cloudflare preview of
+      the exact reviewed pull-request commit before merging it. Preview builds
+      follow the configured branch policy; a pull request alone may be skipped.
+      For a skipped candidate, open its deployment's **Details > Manage
+      deployment > Retry deployment** to build a native Git preview, then
+      verify its commit. This is a one-off retry, so later commits may need
+      another retry. Keep the branch policy and native Git connection; do not
+      enable all branches or replace the deployment path just to test.
 - [ ] After merge, confirm the production deployment came from the expected
       public `main` commit. A green Pages build does not authorize npm
       publication or a public announcement.
