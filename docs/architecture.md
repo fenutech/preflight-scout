@@ -116,6 +116,9 @@ flowchart TD
   this ordering does not classify product impact or risk. Init uses the same
   bounded repository selection. `promptCoverage` records omissions and
   truncations; core appends coverage unknowns even when a model omits them.
+  Repository redaction prepares an environment-secret snapshot once per
+  synchronous inventory operation, with fresh values for the next operation;
+  it never caches secrets globally or repeats the environment scan per path.
   Mission planning omits redundant raw patches and head blobs from the already
   interpreted impact map and includes a separate, redacted source selection of
   at most 32 Ki characters from the original pull request. This preserves exact

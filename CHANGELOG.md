@@ -37,8 +37,13 @@ All notable changes to Preflight Scout are documented here. This project follows
 
 ### Fixed
 
-- Updated the site to Next.js 16.3.3 and refreshed vulnerable dependency floors;
-  the production audit reports zero advisories at the validation checkpoint.
+- Updated the site to Next.js 16.3.3, Vitest to 4.1.11, and vulnerable dependency
+  floors; both full and production audits report zero advisories at the
+  validation checkpoint.
+- Repository redaction prepares secret values once per synchronous inventory
+  operation, avoiding repeated environment scans on large repositories. Later
+  operations still read fresh secrets; PEM handling and replacement order remain
+  enforced.
 - The exact first reviewed navigation is executed through the normal policy and
   origin checks and receives completion credit, avoiding duplicate navigation
   and false uncovered-step failures. Later or different targets remain distinct.
