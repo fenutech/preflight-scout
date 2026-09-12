@@ -33,7 +33,7 @@ combination can review the resulting evidence.
 
 ```bash
 preflight-scout --version
-preflight-scout update-check --skill-version 0.1.6
+preflight-scout update-check --skill-version 0.1.7
 preflight-scout init --dry-run --base <base>
 ```
 

@@ -6,6 +6,8 @@ All notable changes to Preflight Scout are documented here. This project follows
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-09-12
+
 ### Added
 
 - Agent onboarding through a stable plain-text website entry point, a focused
@@ -61,7 +63,6 @@ All notable changes to Preflight Scout are documented here. This project follows
 - Agent instructions preserve exact run identity across context compaction,
   explain provider environment persistence, and keep unsupported hidden metadata
   checks in manual/static review rather than visible-DOM browser assertions.
-
 
 ## [0.1.6] - 2026-07-18
 
