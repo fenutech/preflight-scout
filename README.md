@@ -283,7 +283,7 @@ python3 -m http.server 4173
 
 ## Current model support
 
-OpenAI and Codex defaults below describe the unreleased source changes and were verified against official OpenAI documentation on 2026-09-12. Other provider defaults retain their 2026-07-13 verification. Published 0.1.6 retains its previous defaults until a new package release.
+The defaults below apply to Preflight Scout 0.1.7. OpenAI and Codex defaults were verified against official OpenAI documentation on 2026-09-12. Other provider defaults retain their 2026-07-13 verification. Installed 0.1.6 packages retain their previous defaults.
 
 | Provider | Environment | Default |
 | --- | --- | --- |

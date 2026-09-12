@@ -59,10 +59,11 @@ preflight-scout init --dry-run --base <base>
 preflight-scout doctor --base <base> --head <head>
 ```
 
-Published 0.1.6 prints the full inventory for `init --dry-run`. Redirect that
-output to a private local file and inspect selected fields to keep it out of
-the conversation. Source builds after 0.1.6 print a compact summary; use
+In 0.1.7, `init --dry-run` prints a compact summary; use
 `--dry-run --full-index` only when the full indexed inventory is needed.
+Installed 0.1.6 packages print the full inventory for `init --dry-run`. Redirect
+that output to a private local file and inspect selected fields to keep it out
+of the conversation.
 
 If the contract is absent, `preflight-scout init --no-llm --base <base>` creates
 a blank contract without a model call. Fill only known targets, flows, roles,

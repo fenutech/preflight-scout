@@ -109,8 +109,8 @@ delegated browser controls are available.
 
 ## Model configuration and runtime compatibility
 
-On source builds after 0.1.6, an explicitly selected provider reports the effective
-model and reasoning policy. This is configuration evidence, not proof that the
+In 0.1.7, an explicitly selected provider reports the effective model and
+reasoning policy. This is configuration evidence, not proof that the
 account or installed CLI can run that model. Use `--agent codex` for the bounded
 runtime probe. If Codex says the model needs a newer CLI, update the executable
 resolved by the current task's `PATH`, then repeat the probe. A current desktop
@@ -119,7 +119,7 @@ chosen supported `PREFLIGHT_SCOUT_EXEC_MODEL`; Scout never silently substitutes
 one after rejection. `PREFLIGHT_SCOUT_EXEC_MODEL=default` leaves model selection
 to the CLI (the built-in default in isolated planning, which ignores user config).
 
-For large repositories, source builds use `PREFLIGHT_SCOUT_MAX_REPO_FILES`
+For large repositories, 0.1.7 uses `PREFLIGHT_SCOUT_MAX_REPO_FILES`
 (1–250000, default 50000) in the trusted parent environment. Inspect
 `init --dry-run` for coverage and a compact path sample; `--full-index` opts into
 full output. Use the same inventory setting when analyzing and reusing artifacts.

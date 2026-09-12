@@ -112,17 +112,17 @@ remain unrun. Continue based on the resulting evidence and existing authority.
 ## Use current agent models
 
 - Prefer `PREFLIGHT_SCOUT_LLM_PROVIDER=codex-exec` or `PREFLIGHT_SCOUT_LLM_PROVIDER=claude-exec` when the corresponding current CLI is installed and authenticated.
-- Source builds after 0.1.6 default OpenAI and Codex to `gpt-6-astra` with `max` reasoning. Published 0.1.6 retains its earlier defaults. Respect operator model policy: `PREFLIGHT_SCOUT_EXEC_MODEL` and `PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT` override shared `PREFLIGHT_SCOUT_MODEL` and `PREFLIGHT_SCOUT_REASONING_EFFORT`; `default` omits a local model/effort pin. Other CLI providers retain their default model. Inspect `doctor` output instead of inferring the selected model.
+- Version 0.1.7 defaults OpenAI and Codex to `gpt-6-astra` with `max` reasoning. Installed 0.1.6 packages retain their earlier defaults. Respect operator model policy: `PREFLIGHT_SCOUT_EXEC_MODEL` and `PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT` override shared `PREFLIGHT_SCOUT_MODEL` and `PREFLIGHT_SCOUT_REASONING_EFFORT`; `default` omits a local model/effort pin. Other CLI providers retain their default model. Inspect `doctor` output instead of inferring the selected model.
 - Export provider controls in the task shell or repeat them for each command. A one-command environment assignment does not persist to the next command. Keep these privileged controls out of repository-local env files.
 - Use provider API modes only when their keys and model policy are intentionally configured. Never copy a model name from this skill into project configuration.
 
 ## Keep context and run identity manageable
 
-- On source builds after 0.1.6, `init --dry-run` returns a compact inventory summary. Use `--full-index` only for an explicit investigation, preferably redirected to a local file. Published 0.1.6 prints the full inventory: redirect it and inspect selected fields instead of dumping it into agent context.
+- In 0.1.7, `init --dry-run` returns a compact inventory summary. Use `--full-index` only for an explicit investigation, preferably redirected to a local file. Installed 0.1.6 packages print the full inventory: redirect it and inspect selected fields instead of dumping it into agent context.
 - Retain the exact printed analysis directory, base/head SHAs, target, environment, blockers, and next command across context compaction. Prefer that directory to `runs/latest` when multiple agents or tasks share a checkout.
 - Use a unique run directory for each reviewed revision. Its run identity and `report-summary.json` help the calling agent recover task context; they do not resume a browser mission midway through execution. Restart interrupted verification from an applicable reviewed analysis.
 - Use `report-summary.json`, then select relevant mission/evidence fields. Never concatenate all run artifacts or whole repository inventories into the conversation.
-- Source builds after 0.1.6 accept trusted parent-shell `PREFLIGHT_SCOUT_MAX_REPO_FILES` (1–250000; default 50000). Set it consistently for analyze and artifact reuse. A higher inventory cap does not make omitted prompt evidence complete. Inspect coverage and explicit unknowns before interpreting readiness.
+- Version 0.1.7 accepts trusted parent-shell `PREFLIGHT_SCOUT_MAX_REPO_FILES` (1–250000; default 50000). Set it consistently for analyze and artifact reuse. A higher inventory cap does not make omitted prompt evidence complete. Inspect coverage and explicit unknowns before interpreting readiness.
 - When context is limited, narrow the intended diff only when it still matches the user's scope. Otherwise retain unknowns and split follow-up reviews; do not edit generated artifacts to manufacture complete coverage.
 - Do not repeat an identical failed provider call, loosen auth/origin policy, or remove completion assertions to make a run pass. Capture the phase and bounded error, correct the cause, and review a fresh analysis when its inputs change.
 

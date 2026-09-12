@@ -350,10 +350,10 @@ preflight-scout analyze --base origin/main --head HEAD --open-report
 
 Export the provider in the current task shell or repeat it for each command;
 a one-command assignment does not configure subsequent commands. Respect the
-operator's existing provider policy. Published 0.1.6 prints the full inventory
-for `init --dry-run`: redirect it to a private local file and inspect selected
-fields. Source builds after 0.1.6 print a compact summary and offer
-`--dry-run --full-index` only when the full inventory is needed.
+operator's existing provider policy. In 0.1.7, `init --dry-run` prints a compact
+summary and offers `--dry-run --full-index` only when the full inventory is
+needed. Installed 0.1.6 packages print the full inventory: redirect it to a
+private local file and inspect selected fields.
 
 Add `--mcp --agent codex` or `--mcp --agent claude` to `doctor` before
 delegating browser execution. Configure an app target and disposable test
@@ -367,8 +367,8 @@ deterministic same-origin Playwright boundary.
 - Keep `skills/preflight-scout/` as the only source of truth.
 - Keep the required `agents/openai.yaml` metadata additive so Claude can ignore
   it safely while Codex gets the richer display information.
-- Respect operator model and reasoning settings. Source builds after 0.1.6
-  default OpenAI and Codex to Astra with max reasoning; the installed 0.1.6
+- Respect operator model and reasoning settings. Version 0.1.7 defaults
+  OpenAI and Codex to Astra with max reasoning; the installed 0.1.6
   release keeps its previous behavior. Keep the model defaults and override
   instructions aligned with the [provider guide](providers-and-security.md).
 - Never turn planned checks into claimed results.
