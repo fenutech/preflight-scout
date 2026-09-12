@@ -105,3 +105,37 @@ Warnings mean Preflight Scout can still be useful, usually in checklist mode. Fa
 mean an analysis or browser run is likely blocked. A clean doctor report is
 setup evidence, not a QA pass, security scan, authentication test, or proof that
 delegated browser controls are available.
+
+
+## Model configuration and runtime compatibility
+
+On source builds after 0.1.6, an explicitly selected provider reports the effective
+model and reasoning policy. This is configuration evidence, not proof that the
+account or installed CLI can run that model. Use `--agent codex` for the bounded
+runtime probe. If Codex says the model needs a newer CLI, update the executable
+resolved by the current task's `PATH`, then repeat the probe. A current desktop
+app and an older standalone CLI can coexist. Alternatively, set an explicitly
+chosen supported `PREFLIGHT_SCOUT_EXEC_MODEL`; Scout never silently substitutes
+one after rejection. `PREFLIGHT_SCOUT_EXEC_MODEL=default` leaves model selection
+to the CLI (the built-in default in isolated planning, which ignores user config).
+
+For large repositories, source builds use `PREFLIGHT_SCOUT_MAX_REPO_FILES`
+(1–250000, default 50000) in the trusted parent environment. Inspect
+`init --dry-run` for coverage and a compact path sample; `--full-index` opts into
+full output. Use the same inventory setting when analyzing and reusing artifacts.
+An installed 0.1.6 CLI does not have these newer controls; read its matching docs.
+
+## Codex startup warnings
+
+Codex can report system-skill installation errors, stale `arg0` cleanup errors,
+or a state-database fallback warning and still complete a request successfully.
+Check the exit status and expected response or readiness marker before treating
+stderr warnings as a failed runtime probe. A successful probe still proves only
+runtime availability, not browser access or completed QA.
+
+For `Permission denied` while replacing system skills or cleaning temporary
+launch directories, inspect ownership of `~/.codex/skills/.system` and
+`~/.codex/tmp/arg0`. Files created by an administrator can prevent the normal
+user's CLI from maintaining them. Resolve installation ownership through the
+intended installation account; Preflight Scout does not change permissions,
+remove Codex history, or disable user skills to suppress these warnings.

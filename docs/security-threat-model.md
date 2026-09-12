@@ -79,13 +79,14 @@ Preflight Scout runs on developer workstations and in CI. It can handle source c
   capability list. Navigation, mutation, and assertion decisions must bind to
   the exact reviewed mission step, target, and contract policy label;
   `finish_pass` fails closed until required reviewed-step coverage is present.
-  Auth bootstrap starts from the reviewed `auth.loginUrl` (or an explicit human
-  override), not an LLM-invented sign-in route.
+  Auth bootstrap starts from the reviewed `auth.loginUrl` (or an explicit
+  authorized override based on confirmed context), not an LLM-invented sign-in route.
 - Preflight Scout's built-in Playwright missions enforce one exact HTTP(S) origin across
   direct navigation, clicks, form/key submissions, redirects, and popups.
   Non-HTTP(S), browser-internal, credential-bearing, and off-origin targets fail
   closed. Unsafe evidence and storage state are discarded or invalidated, and
-  cross-origin SSO requires manual review.
+  cross-origin SSO requires a reviewed, authorized execution surface outside
+  the owned runner.
 - Default built-in local-agent planning runs without tools from a temporary
   directory outside the target repository with a narrow environment and bounded
   output. Explicit `PREFLIGHT_SCOUT_EXEC_COMMAND`/`PREFLIGHT_SCOUT_EXEC_ARGS` overrides are

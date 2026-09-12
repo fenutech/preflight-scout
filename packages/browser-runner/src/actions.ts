@@ -125,7 +125,7 @@ export function bindReviewedAssertionDecision(
 
   // The live model chooses which reviewed assertion is ready to run, but it
   // does not choose or weaken the assertion itself. Bind the locator and text
-  // to the human-reviewed mission before safety validation and execution.
+  // to the reviewed mission before safety validation and execution.
   const { value: _unreviewedValue, ...boundDecision } = decision;
   return {
     ...boundDecision,
@@ -201,7 +201,7 @@ export function checkActionSafety(
   }
   if (contract.dangerousActions.requireApproval.includes(step.policyLabel)) {
     if (!isActionApproved(approvals, step.policyLabel)) {
-      return `Approval required for action "${step.policyLabel}". Run preflight-scout approve --action "${step.policyLabel}" after human review.`;
+      return `Approval required for action "${step.policyLabel}". Run preflight-scout approve --action "${step.policyLabel}" only when this exact action is already authorized; otherwise obtain the missing authorization.`;
     }
     return undefined;
   }

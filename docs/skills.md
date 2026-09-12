@@ -3,8 +3,17 @@
 The Agent Skill is the recommended, agent-first way to use Preflight Scout from
 Codex or Claude Code. It teaches the agent how to turn a change into a focused
 QA plan, run safe checks when tools are available, and report evidence without
-claiming that an unexecuted check passed. A human still reviews the mission,
-evidence, unknowns, and risky-action approvals.
+claiming that an unexecuted check passed. Agents can review and run missions
+within the task's existing authorization for environments, actions, and roles.
+They escalate only for missing authority and retain the contract's action
+permissions and required approval records. Generated plans do not grant new
+authority. Evidence can feed agent review, automation, human review, or a
+combination.
+
+The compatibility status `ready_for_human_review` means the recorded browser
+checks passed and the evidence is ready for review. It does not require a human
+gate or authorize a release. Display labels use **Ready for review**; consumers
+must still account for coverage limits, unknowns, and checks that did not run.
 
 See the [illustrative sample report](../examples/sample-report/report.md) and its
 [fixture disclosure](../examples/sample-report/README.md) before a first run.
@@ -332,11 +341,19 @@ The first-run local sequence is:
 ```bash
 preflight-scout --version
 preflight-scout install-browser # only when the install path did not already install Chromium, or doctor reports it missing
+export PREFLIGHT_SCOUT_LLM_PROVIDER=codex-exec # or claude-exec for an authenticated Claude Code CLI
 preflight-scout init --dry-run --base origin/main
 preflight-scout init --base origin/main # only when .preflight-scout/config.yml is absent
 preflight-scout doctor --base origin/main --head HEAD
 preflight-scout analyze --base origin/main --head HEAD --open-report
 ```
+
+Export the provider in the current task shell or repeat it for each command;
+a one-command assignment does not configure subsequent commands. Respect the
+operator's existing provider policy. Published 0.1.6 prints the full inventory
+for `init --dry-run`: redirect it to a private local file and inspect selected
+fields. Source builds after 0.1.6 print a compact summary and offer
+`--dry-run --full-index` only when the full inventory is needed.
 
 Add `--mcp --agent codex` or `--mcp --agent claude` to `doctor` before
 delegating browser execution. Configure an app target and disposable test
@@ -350,8 +367,10 @@ deterministic same-origin Playwright boundary.
 - Keep `skills/preflight-scout/` as the only source of truth.
 - Keep the required `agents/openai.yaml` metadata additive so Claude can ignore
   it safely while Codex gets the richer display information.
-- Let Codex or Claude Code use its configured model unless reproducibility
-  requires a deliberate pin.
+- Respect operator model and reasoning settings. Source builds after 0.1.6
+  default OpenAI and Codex to Astra with max reasoning; the installed 0.1.6
+  release keeps its previous behavior. Keep the model defaults and override
+  instructions aligned with the [provider guide](providers-and-security.md).
 - Never turn planned checks into claimed results.
 - Treat storage state and credential values as secrets.
 - Validate the archive and smoke-test current stable clients before a release.

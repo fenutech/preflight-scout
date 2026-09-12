@@ -89,6 +89,16 @@ release, or marketplace submission.
       headings, social metadata, internal links, sitemap membership, and
       home-only site-name markup; confirm the sample report and Pages aliases
       return `noindex` without being blocked in `robots.txt`.
+- [ ] Confirm the visible agent entry links to `/llms.txt`, its compact index
+      leads to `/agent-guide.md`, and the exported guide exactly matches
+      `docs/agent-guide.md`. Verify plain-text/Markdown response types, readable
+      output without JavaScript, current documentation links, and no private
+      paths, credentials, repository context, or session history.
+- [ ] Test the primary onboarding button on home and install: it copies the
+      exact setup request for `/agent-setup/prompt.md`, shows success, and
+      exposes a selectable prompt if clipboard access fails. Confirm setup
+      instructions use the website's exact release pin, verify publication
+      before install, preserve existing configurations, and stay within setup.
 - [ ] Verify HTTP-to-HTTPS, `www`-to-apex, and trailing-slash redirects before
       submitting the sitemap to Google Search Console and Bing Webmaster Tools.
 - [ ] After registry publication, confirm
@@ -112,6 +122,7 @@ pnpm typecheck
 pnpm test:ci
 pnpm playwright:install
 pnpm test:browser
+pnpm test:site:browser
 pnpm audit --prod --audit-level high
 pnpm check:repo
 pnpm check:package-assets
@@ -181,6 +192,20 @@ Stop here unless the maintainer explicitly authorizes each external action.
       query string, and canonical/trailing-slash behavior is unchanged.
 - [ ] Confirm the `pages.dev` alias remains noindexed and GitHub contains no
       Cloudflare API token.
+- [ ] Fetch `/llms.txt` and `/agent-guide.md` from production, verify their
+      response types and content against the reviewed static export, and
+      follow the visible homepage and installation-page agent links.
+- [ ] Fetch `/agent-setup/prompt.md` and verify its exact pinned commands and
+      Markdown response type against the build. Copy the onboarding prompt
+      from both production entry points.
+- [ ] From the exact reviewed build, run
+      `node apps/site/scripts/check-production.mjs https://DEPLOYMENT.pages.dev`
+      against the preview and `node apps/site/scripts/check-production.mjs`
+      against production. Raw npm install commands and copy values must remain
+      exact without JavaScript decoding; all agent text endpoints must match
+      the export. Confirm `no-transform` preserves those responses and the
+      page/immutable-asset cache lifetimes remain unchanged. A green build or
+      decoded browser view alone does not establish this.
 
 ### Release from the public repository
 

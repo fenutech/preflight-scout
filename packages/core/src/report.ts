@@ -632,7 +632,7 @@ function releaseDecision(
       status: "do_not_ship_yet",
       reason: "Repository inventory was incomplete, so the impact analysis is not exhaustive.",
       nextSteps: [
-        "Reduce the eligible repository inventory or raise the reviewed file limit before relying on this analysis.",
+        "Set PREFLIGHT_SCOUT_MAX_REPO_FILES in the trusted parent environment (1–250000), or reduce the eligible inventory, then rerun analyze with the reviewed scope.",
         "Rerun Preflight Scout and review a report with complete repository coverage."
       ]
     };
@@ -686,7 +686,7 @@ function reportUnknowns(impactMap: ImpactMap, mission: QAMission): string[] {
 }
 
 function formatReleaseDecision(status: HumanReportSummary["releaseDecision"]["status"]): string {
-  if (status === "ready_for_human_review") return "Ready for human review";
+  if (status === "ready_for_human_review") return "Ready for review";
   if (status === "needs_browser_evidence") return "Needs browser evidence";
   return "Do not ship yet";
 }
@@ -804,7 +804,7 @@ function isImage(filePath: string): boolean {
 }
 
 function formatVerdict(verdict: HumanReportSummary["verdict"]): string {
-  if (verdict === "ready_for_human_review") return "Ready for human review";
+  if (verdict === "ready_for_human_review") return "Ready for review";
   if (verdict === "needs_attention") return "Needs attention before production";
   return "No browser evidence yet";
 }

@@ -24,8 +24,8 @@ const boundaries = [
     icon: GlobeHemisphereWestIcon
   },
   {
-    title: "Human release control",
-    body: "Preflight Scout proposes checks and records evidence. It does not turn a passing mission into an automatic production decision.",
+    title: "Your release policy",
+    body: "Agents can verify within standing authorization. Evidence can feed automated gates, human review, or both; a passing mission does not grant additional authority.",
     icon: ShieldCheckIcon
   },
   {

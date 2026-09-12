@@ -75,6 +75,7 @@ jobs:
       - run: pnpm playwright:install:ci
       - run: pnpm build
       - run: pnpm test:browser
+      - run: pnpm test:site:browser
 
   windows-wrapper:
     name: Windows source CLI install and wrapper

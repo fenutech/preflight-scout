@@ -13,6 +13,7 @@ const controlledKeys = [
   "PREFLIGHT_SCOUT_EXEC_COMMAND",
   "PREFLIGHT_SCOUT_OPENAI_BASE_URL",
   "PREFLIGHT_SCOUT_MODEL",
+  "PREFLIGHT_SCOUT_MAX_REPO_FILES",
   "PREFLIGHT_SCOUT_TRUST_ENV_FILE_CONTROLS",
   "PREFLIGHT_SCOUT_BROWSER_QA_EMAIL",
   "PREFLIGHT_SCOUT_BROWSER_QA_PASSWORD",
@@ -103,6 +104,15 @@ describe("loadEnvFile", () => {
     expect(process.env.GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined();
     expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined();
     expect(process.env.PLAYWRIGHT_BROWSERS_PATH).toBeUndefined();
+  });
+
+  it("prevents an ignored repository env file from changing inventory coverage", async () => {
+    await writeFile(path.join(dir, ".gitignore"), ".env.preflight-scout.local\n");
+    await writeFile(path.join(dir, ".env.preflight-scout.local"), "PREFLIGHT_SCOUT_MAX_REPO_FILES=1\nPREFLIGHT_SCOUT_APP_URL=http://127.0.0.1:4173\n");
+    process.env.PREFLIGHT_SCOUT_MAX_REPO_FILES = "60000";
+    await expect(loadEnvFile(dir, ".env.preflight-scout.local")).rejects.toThrow("PREFLIGHT_SCOUT_MAX_REPO_FILES");
+    expect(process.env.PREFLIGHT_SCOUT_MAX_REPO_FILES).toBe("60000");
+    expect(process.env.PREFLIGHT_SCOUT_APP_URL).toBeUndefined();
   });
 
   it("loads ignored local credentials and app configuration", async () => {

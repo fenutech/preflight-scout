@@ -7,6 +7,7 @@ import * as processTree from "@preflight-scout/core";
 import {
   browserCredentialKindForEnvName,
   redactText,
+  resolveExecModelSettings,
   type QAMission,
   type QAContract
 } from "@preflight-scout/core";
@@ -317,8 +318,9 @@ export function resolveAgentCommand(options: AgentCommandOptions, prompt: string
   }
 
   if (options.kind === "codex") {
-    const model = process.env.PREFLIGHT_SCOUT_EXEC_MODEL ?? process.env.PREFLIGHT_SCOUT_MODEL;
-    const reasoningEffort = options.reasoningEffort ?? process.env.PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT ?? process.env.PREFLIGHT_SCOUT_REASONING_EFFORT;
+    const settings = resolveExecModelSettings("codex");
+    const model = settings.model;
+    const reasoningEffort = options.reasoningEffort ?? settings.reasoningEffort;
     const modelArgs = model ? ["-m", model] : [];
     const reasoningArgs = reasoningEffort ? ["-c", renderCodexReasoningConfig(reasoningEffort)] : [];
     const capabilityProbeArgs = options.executionProfile === "capability-probe"
@@ -338,8 +340,9 @@ export function resolveAgentCommand(options: AgentCommandOptions, prompt: string
   }
 
   if (options.kind === "claude") {
-    const model = process.env.PREFLIGHT_SCOUT_EXEC_MODEL ?? process.env.PREFLIGHT_SCOUT_MODEL;
-    const reasoningEffort = options.reasoningEffort ?? process.env.PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT ?? process.env.PREFLIGHT_SCOUT_REASONING_EFFORT;
+    const settings = resolveExecModelSettings("claude");
+    const model = settings.model;
+    const reasoningEffort = options.reasoningEffort ?? settings.reasoningEffort;
     const modelArgs = model ? ["--model", model] : [];
     const effortArgs = reasoningEffort ? ["--effort", reasoningEffort] : [];
     const capabilityProbeArgs = options.executionProfile === "capability-probe"
@@ -355,7 +358,7 @@ export function resolveAgentCommand(options: AgentCommandOptions, prompt: string
     };
   }
 
-  const model = process.env.PREFLIGHT_SCOUT_EXEC_MODEL ?? process.env.PREFLIGHT_SCOUT_MODEL;
+  const model = resolveExecModelSettings("gemini").model;
   const modelArgs = model ? ["-m", model] : [];
   const capabilityProbeArgs = options.executionProfile === "capability-probe"
     ? [

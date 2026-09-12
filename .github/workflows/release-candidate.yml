@@ -68,6 +68,7 @@ jobs:
       - run: pnpm test:ci
       - run: pnpm playwright:install:ci
       - run: pnpm test:browser
+      - run: pnpm test:site:browser
       - run: pnpm audit --prod --audit-level high
       - run: pnpm check:repo
       - run: pnpm test:repo-boundary

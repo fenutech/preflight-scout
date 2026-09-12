@@ -15,18 +15,23 @@
 <p align="center">
   <a href="https://preflightscout.com">Website</a> ·
   <a href="https://preflightscout.com/install/">Installation</a> ·
+  <a href="https://preflightscout.com/llms.txt">For agents</a> ·
   <a href="https://preflightscout.com/example-report/">Example report</a> ·
   <a href="https://preflightscout.com/security/">Security</a>
 </p>
 
-Preflight Scout turns a pull-request diff into focused manual checks and
-reviewed browser missions. It writes reports and evidence locally so you can
-inspect the result before shipping.
+Preflight Scout turns a coding agent's "done" into verifiable evidence under
+explicit execution boundaries. It ties a pull-request analysis to exact Git
+revisions, proposes focused checks and browser missions, and executes reviewed
+steps within declared permissions. Agents can review and run missions under
+standing authorization; additional authority is needed only when that scope
+is insufficient. Local reports and evidence serve agents, CI, and human
+reviewers. A useful mission can later become a permanent regression test.
 
 > [!IMPORTANT]
 > Preflight Scout is public alpha software. Use test accounts on local, preview,
-> or staging targets. Review each browser mission before it runs and inspect the
-> results before shipping.
+> or staging targets. Review each browser mission before it runs, directly or
+> through an authorized agent, and apply your release policy to the evidence.
 
 Built and maintained by [Andrea Fenu](https://github.com/anfen93) at
 [Fenutech](https://fenutech.com).
@@ -278,19 +283,18 @@ python3 -m http.server 4173
 
 ## Current model support
 
-Defaults were verified against official provider documentation on 2026-07-13.
+OpenAI and Codex defaults below describe the unreleased source changes and were verified against official OpenAI documentation on 2026-09-12. Other provider defaults retain their 2026-07-13 verification. Published 0.1.6 retains its previous defaults until a new package release.
 
 | Provider | Environment | Default |
 | --- | --- | --- |
-| OpenAI Responses API | `PREFLIGHT_SCOUT_LLM_PROVIDER=openai`, `OPENAI_API_KEY` | `gpt-5.6` |
+| OpenAI Responses API | `PREFLIGHT_SCOUT_LLM_PROVIDER=openai`, `OPENAI_API_KEY` | `gpt-6-astra`, `max` reasoning |
 | Anthropic Messages API | `PREFLIGHT_SCOUT_LLM_PROVIDER=anthropic`, `ANTHROPIC_API_KEY` | `claude-sonnet-5` |
 | Gemini API | `PREFLIGHT_SCOUT_LLM_PROVIDER=gemini`, `GEMINI_API_KEY` | `gemini-3.5-flash` |
 | OpenAI-compatible gateway | `PREFLIGHT_SCOUT_LLM_PROVIDER=openai-compatible`, key, base URL, and `PREFLIGHT_SCOUT_MODEL` | explicit gateway model required |
-| Local agents | `codex-exec`, `claude-exec`, `gemini-exec` | installed agent default |
+| Codex CLI | `PREFLIGHT_SCOUT_LLM_PROVIDER=codex-exec` | `gpt-6-astra`, `max` reasoning |
+| Other local agents | `claude-exec`, `gemini-exec` | installed agent default |
 
-OpenAI uses `gpt-5.6` by default. Choose another supported model when you need a
-different cost or speed profile. Local-agent modes use the agent's configured
-default unless `PREFLIGHT_SCOUT_EXEC_MODEL` is set.
+OpenAI and Codex use [GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra) with `max` reasoning for review quality. This can increase latency and API cost. Override `PREFLIGHT_SCOUT_MODEL` / `PREFLIGHT_SCOUT_REASONING_EFFORT`, or the higher-priority `PREFLIGHT_SCOUT_EXEC_MODEL` / `PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT` for local agents. A different model does not inherit Astra's automatic `max` setting. Set `PREFLIGHT_SCOUT_EXEC_MODEL=default` to leave model selection to the CLI; set the effort override to `default` to omit an effort pin. Isolated planning still ignores user configuration for safety, so inheritance there means the CLI's built-in default. `doctor` displays the effective explicit provider settings.
 
 OpenAI first-party calls use the Responses API with strict JSON Schema and `store: false`. Anthropic Structured Outputs are generally available on the Claude API for Sonnet 5, and Preflight Scout uses `output_config.format`. Every provider response is size-bounded before parsing, Zod-validated, and repaired with bounded attempts. API calls default to a 120-second timeout; trusted parent-shell `PREFLIGHT_SCOUT_LLM_TIMEOUT_MS` may set 1,000 through 600,000 milliseconds.
 

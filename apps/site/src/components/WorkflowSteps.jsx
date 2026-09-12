@@ -2,18 +2,18 @@ import { ArrowRightIcon, CrosshairSimpleIcon, FileCodeIcon, FileTextIcon } from 
 
 const steps = [
   {
-    title: "Read the diff",
-    body: "It lists the routes, roles, APIs, and product flows the change may touch.",
+    title: "Plan for this change",
+    body: "Scout ties the analysis to your Git revisions and proposes checks for the affected flows. Your agent can review the plan.",
     icon: FileCodeIcon
   },
   {
-    title: "Run the checks that matter",
-    body: "It turns that list into a small browser plan and runs only the steps you approve.",
+    title: "Run within your boundaries",
+    body: "Agents execute within standing authorization. The built-in runner enforces reviewed actions, permissions, and the target origin.",
     icon: CrosshairSimpleIcon
   },
   {
-    title: "Review the evidence",
-    body: "It saves screenshots, traces, console errors, and the final result. You decide whether to ship.",
+    title: "Use the evidence",
+    body: "Screenshots, traces, failures, and final observations feed your agent, CI gate, or human review. Your release policy decides what follows.",
     icon: FileTextIcon
   }
 ];

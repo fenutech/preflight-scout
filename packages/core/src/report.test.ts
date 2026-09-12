@@ -226,9 +226,12 @@ describe("human report", () => {
       results: runResult.results.map((step) => ({ ...step, status: "passed" as const }))
     };
     const passedHtml = renderHumanReportHtml({ impactMap, mission, runResults: [passedResult], runDir });
+    const passedSummary = buildHumanReportSummary({ impactMap, mission, runResults: [passedResult], runDir });
     const pendingHtml = renderHumanReportHtml({ impactMap, mission });
 
-    expect(passedHtml).toContain("class=\"decision clear\">Ready for human review</p>");
+    expect(passedHtml).toContain("class=\"decision clear\">Ready for review</p>");
+    expect(passedSummary.verdict).toBe("ready_for_human_review");
+    expect(passedSummary.releaseDecision.status).toBe("ready_for_human_review");
     expect(passedHtml).toContain("class=\"mission-card passed\"");
     expect(passedHtml).toContain("data-tone=\"passed\"");
     expect(pendingHtml).toContain("class=\"decision pending\">Needs browser evidence</p>");

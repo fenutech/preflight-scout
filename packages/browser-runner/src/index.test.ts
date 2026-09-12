@@ -243,6 +243,20 @@ class DecisionSequenceLLM implements LLMClient {
   }
 }
 
+class ProgressCapturingLLM implements LLMClient {
+  payloads: Array<{ missionProgress?: Record<string, unknown>; previousResults?: Array<{ stepId: string }> }> = [];
+  prompt = "";
+
+  constructor(private readonly delegate: LLMClient) {}
+
+  async completeJson<T>(messages: LLMMessage[], options: StructuredJsonOptions<T>): Promise<T> {
+    this.prompt = messages.map((message) => message.content).join("\n");
+    const payload = messages.at(-1)?.content.split("\n\nThe current browser screenshot")[0] ?? "{}";
+    this.payloads.push(JSON.parse(payload));
+    return this.delegate.completeJson<T>(messages, options);
+  }
+}
+
 class ResultMessageCaptureLLM implements LLMClient {
   private turn = 0;
   lastPrompt = "";
@@ -276,6 +290,7 @@ describe("runBrowserMission", () => {
   let outsideBaseUrl: string;
   let outsideRequests = 0;
   let dangerousMutations = 0;
+  let initialNavigationRequests = 0;
   let lateAssertionShouldChange = false;
   let outputDir: string;
 
@@ -291,6 +306,17 @@ describe("runBrowserMission", () => {
     outsideBaseUrl = `http://127.0.0.1:${outsideAddress.port}`;
 
     server = createServer(async (req, res) => {
+      if (req.url?.startsWith("/initial-navigation")) {
+        initialNavigationRequests += 1;
+        if (req.url === "/initial-navigation-redirect") {
+          res.writeHead(302, { location: "/initial-navigation" });
+          res.end();
+        } else {
+          res.writeHead(200, { "content-type": "text/html" });
+          res.end("<!doctype html><h1>Reviewed fixture</h1>");
+        }
+        return;
+      }
       if (req.url === "/dangerous-mutation") {
         dangerousMutations += 1;
         res.writeHead(204);
@@ -2119,6 +2145,332 @@ describe("runBrowserMission", () => {
 
     expect(result.status).toBe("passed");
     expect(result.results[0]?.status).toBe("passed");
+  });
+
+  it.each([
+    ["relative target", "/initial-navigation", false, 1],
+    ["absolute target", "/initial-navigation", true, 1],
+    ["same-origin redirect", "/initial-navigation-redirect", false, 2]
+  ] as const)("executes the reviewed initial goto once before browser decisions: %s", async (_label, startPath, absolute, requests) => {
+    initialNavigationRequests = 0;
+    const result = await runBrowserMission({
+      id: "reviewed-initial-goto",
+      title: "Cover the reviewed initial navigation",
+      risk: "low",
+      startPath,
+      reason: ["A loading wait and successful assertion must not lose initial navigation coverage."],
+      steps: [{
+        id: "open-reviewed-fixture",
+        instruction: "Open the reviewed fixture.",
+        action: "goto",
+        policyLabel: "navigate",
+        target: absolute ? `${baseUrl}${startPath}` : startPath
+      }, {
+        id: "verify-fixture",
+        instruction: "Verify the reviewed fixture heading.",
+        action: "assert_text",
+        target: "text=Reviewed fixture",
+        expected: "Reviewed fixture"
+      }]
+    }, {
+      baseUrl,
+      contract: basicContract(),
+      llm: new DecisionSequenceLLM([
+        { thought: "Let initial rendering settle.", action: "wait", value: "1", reason: "Wait for the initial page." },
+        { thought: "Verify the reviewed heading.", action: "assert", missionStepId: "verify-fixture", reason: "The fixture is rendered." },
+        { thought: "Complete the reviewed mission.", action: "finish_pass", reason: "Initial navigation and the final assertion passed." }
+      ]),
+      outputDir: path.join(outputDir, `initial-goto-${absolute ? "absolute" : startPath.slice(1)}`),
+      headless: true,
+      maxTurns: 3
+    });
+
+    expect(result.status).toBe("passed");
+    expect(initialNavigationRequests).toBe(requests);
+    expect(result.results[0]).toMatchObject({ stepId: "open-reviewed-fixture", status: "passed" });
+    expect(result.results[0]?.message).toContain("initial navigation");
+  });
+
+  it("reports initial and assertion coverage to the browser agent without requiring discovery-step coverage", async () => {
+    const llm = new ProgressCapturingLLM(new DecisionSequenceLLM([
+      { thought: "Verify the reviewed heading.", action: "assert", missionStepId: "verify-fixture", reason: "The reviewed fixture is visible." },
+      { thought: "All reviewed execution and fresh assertions are complete.", action: "finish_pass", reason: "Request final validation." }
+    ]));
+    const result = await runBrowserMission({
+      id: "initial-navigation-progress",
+      title: "Show the browser agent completed reviewed steps",
+      risk: "low",
+      startPath: "/initial-navigation",
+      reason: ["Repeated successful assertions must not hide that the mission is ready to finish."],
+      steps: [{
+        id: "open-fixture", instruction: "Open the reviewed fixture.", action: "goto", policyLabel: "navigate", target: "/initial-navigation"
+      }, {
+        id: "inspect-fixture", instruction: "Inspect the initial page.", action: "observe"
+      }, {
+        id: "verify-fixture", instruction: "Verify the fixture heading.", action: "assert_visible", target: "text=Reviewed fixture"
+      }]
+    }, {
+      baseUrl, contract: basicContract(), llm,
+      outputDir: path.join(outputDir, "initial-navigation-progress"), headless: true, maxTurns: 2
+    });
+
+    expect(result.status).toBe("passed");
+    expect(llm.payloads).toHaveLength(2);
+    expect(llm.payloads[0]?.missionProgress).toMatchObject({
+      coveredStepIds: ["open-fixture"],
+      remainingExecutableStepIds: ["verify-fixture"],
+      completionAssertionStepIds: ["verify-fixture"],
+      freshCompletionAssertionStepIds: [],
+      pendingCompletionAssertionStepIds: ["verify-fixture"],
+      loginRequired: false,
+      readyForCompletionCheck: false
+    });
+    expect(llm.payloads[1]?.previousResults?.at(-1)?.stepId).toBe("turn-1");
+    expect(llm.payloads[1]?.missionProgress).toMatchObject({
+      coveredStepIds: ["open-fixture", "verify-fixture"],
+      remainingExecutableStepIds: [],
+      freshCompletionAssertionStepIds: ["verify-fixture"],
+      pendingCompletionAssertionStepIds: [],
+      readyForCompletionCheck: true
+    });
+    expect(llm.prompt).toContain("return finish_pass now");
+  });
+
+  it("keeps later navigation outstanding and marks earlier assertions stale after it executes", async () => {
+    const llm = new ProgressCapturingLLM(new DecisionSequenceLLM([
+      { thought: "Assert the heading early.", action: "assert", missionStepId: "verify-fixture", reason: "The heading matches on the initial page." },
+      { thought: "Perform the outstanding reviewed navigation.", action: "goto", missionStepId: "open-later-fixture", target: "/initial-navigation-later", reason: "Open the later fixture." },
+      { thought: "Refresh the assertion after navigation.", action: "assert", missionStepId: "verify-fixture", reason: "The heading matches on the final page." },
+      { thought: "All execution and fresh assertions are complete.", action: "finish_pass", reason: "Request final validation." }
+    ]));
+    const result = await runBrowserMission({
+      id: "later-navigation-progress",
+      title: "Track remaining navigation and fresh completion separately",
+      risk: "low",
+      startPath: "/initial-navigation",
+      reason: ["Matching page text cannot replace a later navigation or its final assertion."],
+      steps: [{
+        id: "open-fixture", instruction: "Open the initial fixture.", action: "goto", policyLabel: "navigate", target: "/initial-navigation"
+      }, {
+        id: "open-later-fixture", instruction: "Open the later fixture.", action: "goto", policyLabel: "navigate", target: "/initial-navigation-later"
+      }, {
+        id: "verify-fixture", instruction: "Verify the final heading.", action: "assert_visible", target: "text=Reviewed fixture"
+      }]
+    }, {
+      baseUrl, contract: basicContract(), llm,
+      outputDir: path.join(outputDir, "later-navigation-progress"), headless: true, maxTurns: 4
+    });
+
+    expect(result.status).toBe("passed");
+    expect(llm.payloads[1]?.missionProgress).toMatchObject({
+      coveredStepIds: ["open-fixture", "verify-fixture"],
+      remainingExecutableStepIds: ["open-later-fixture"],
+      freshCompletionAssertionStepIds: ["verify-fixture"],
+      readyForCompletionCheck: false
+    });
+    expect(llm.payloads[2]?.missionProgress).toMatchObject({
+      remainingExecutableStepIds: [],
+      freshCompletionAssertionStepIds: [],
+      pendingCompletionAssertionStepIds: ["verify-fixture"],
+      readyForCompletionCheck: false
+    });
+    expect(llm.payloads[3]?.missionProgress).toMatchObject({
+      remainingExecutableStepIds: [],
+      freshCompletionAssertionStepIds: ["verify-fixture"],
+      pendingCompletionAssertionStepIds: [],
+      readyForCompletionCheck: true
+    });
+  });
+
+  it("does not report a failed reviewed assertion as covered or ready for completion", async () => {
+    const llm = new ProgressCapturingLLM(new DecisionSequenceLLM([
+      { thought: "Run the reviewed assertion.", action: "assert", missionStepId: "verify-fixture", reason: "Check the required heading text." },
+      { thought: "The required text did not match.", action: "blocked", reason: "Required assertion remains unsatisfied." }
+    ]));
+    const result = await runBrowserMission({
+      id: "failed-assertion-progress",
+      title: "Keep failed assertions outstanding",
+      risk: "low",
+      startPath: "/initial-navigation",
+      reason: ["Progress describes successful execution only."],
+      steps: [{
+        id: "verify-fixture", instruction: "Verify the required heading text.", action: "assert_text", target: "text=Reviewed fixture", expected: "Different required heading"
+      }]
+    }, {
+      baseUrl, contract: basicContract(), llm,
+      outputDir: path.join(outputDir, "failed-assertion-progress"), headless: true, maxTurns: 2
+    });
+
+    expect(result.results[0]?.status).toBe("failed");
+    expect(result.status).toBe("blocked");
+    expect(llm.payloads[1]?.missionProgress).toMatchObject({
+      coveredStepIds: [],
+      remainingExecutableStepIds: ["verify-fixture"],
+      freshCompletionAssertionStepIds: [],
+      pendingCompletionAssertionStepIds: ["verify-fixture"],
+      readyForCompletionCheck: false
+    });
+  });
+
+  it.each([
+    ["different path", "/other-fixture", false],
+    ["different query", "/initial-navigation?other=true", false],
+    ["different fragment", "/initial-navigation#other", false],
+    ["later repeated navigation", "/initial-navigation", true]
+  ] as const)("does not infer initial navigation coverage for %s", async (_label, target, repeated) => {
+    const initialGoto: QAFlowMission["steps"][number] = {
+      id: "open-reviewed-fixture",
+      instruction: "Open the initial fixture.",
+      action: "goto",
+      policyLabel: "navigate",
+      target: "/initial-navigation"
+    };
+    const result = await runBrowserMission({
+      id: "uncovered-navigation",
+      title: "Keep other navigation steps uncovered",
+      risk: "low",
+      startPath: "/initial-navigation",
+      reason: ["Initial navigation cannot stand in for a different or later reviewed transition."],
+      steps: [
+        ...(repeated ? [initialGoto] : []),
+        { ...initialGoto, id: "other-reviewed-navigation", target },
+        { id: "verify-fixture", instruction: "Verify the fixture heading.", action: "assert_visible", target: "text=Reviewed fixture" }
+      ]
+    }, {
+      baseUrl,
+      contract: basicContract(),
+      llm: new DecisionSequenceLLM([
+        { thought: "Verify only the visible heading.", action: "assert", missionStepId: "verify-fixture", reason: "The initial fixture is visible." },
+        { thought: "Attempt to finish without the other navigation.", action: "finish_pass", reason: "The initial fixture is visible." }
+      ]),
+      outputDir: path.join(outputDir, `uncovered-navigation-${_label.replaceAll(" ", "-")}`),
+      headless: true,
+      maxTurns: 2
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(result.results.at(-1)?.message).toContain("not successfully covered: other-reviewed-navigation");
+  });
+
+  it.each(["forbidden", "unapproved", "unlisted", "missing"] as const)("enforces %s initial navigation policy before requesting the page", async (policy) => {
+    initialNavigationRequests = 0;
+    const contract = basicContract();
+    contract.dangerousActions = {
+      allowed: [],
+      forbidden: policy === "forbidden" ? ["navigate"] : [],
+      requireApproval: policy === "unapproved" ? ["navigate"] : []
+    };
+    const llm = new UnexpectedDecisionLLM();
+    const result = await runBrowserMission({
+      id: `initial-goto-policy-${policy}`,
+      title: "Preserve navigation policy",
+      risk: "high",
+      startPath: "/initial-navigation",
+      reason: ["Matching startPath never grants an action permission."],
+      steps: [{
+        id: "open-reviewed-fixture",
+        instruction: "Open the reviewed fixture.",
+        action: "goto",
+        ...(policy === "missing" ? {} : { policyLabel: "navigate" }),
+        target: "/initial-navigation"
+      }, {
+        id: "verify-fixture",
+        instruction: "Verify the fixture heading.",
+        action: "assert_visible",
+        target: "text=Reviewed fixture"
+      }]
+    }, {
+      baseUrl,
+      contract,
+      llm,
+      outputDir: path.join(outputDir, `initial-goto-policy-${policy}`),
+      headless: true,
+      maxTurns: 1
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(initialNavigationRequests).toBe(0);
+    expect(llm.calls).toBe(0);
+  });
+
+  it("executes initial navigation after its exact approval gate is approved", async () => {
+    initialNavigationRequests = 0;
+    const contract = basicContract();
+    contract.dangerousActions = { allowed: [], requireApproval: ["navigate"], forbidden: [] };
+    const result = await runBrowserMission({
+      id: "approved-initial-goto",
+      title: "Honor the approved initial navigation",
+      risk: "low",
+      startPath: "/initial-navigation",
+      reason: ["An approved gate may precede the reviewed initial goto."],
+      steps: [{
+        id: "review-navigation",
+        instruction: "Require approval for fixture navigation.",
+        action: "approval_gate",
+        target: "navigate"
+      }, {
+        id: "open-reviewed-fixture",
+        instruction: "Open the reviewed fixture.",
+        action: "goto",
+        policyLabel: "navigate",
+        requiresApproval: true,
+        target: "/initial-navigation"
+      }, {
+        id: "verify-fixture",
+        instruction: "Verify the fixture heading.",
+        action: "assert_visible",
+        target: "text=Reviewed fixture"
+      }]
+    }, {
+      baseUrl,
+      contract,
+      approvals: { approvals: [{ action: "navigate", approvedAt: new Date().toISOString() }] },
+      llm: new DecisionSequenceLLM([
+        { thought: "Verify the reviewed heading.", action: "assert", missionStepId: "verify-fixture", reason: "The approved fixture is rendered." },
+        { thought: "Complete the reviewed mission.", action: "finish_pass", reason: "The approved navigation and assertion passed." }
+      ]),
+      outputDir: path.join(outputDir, "approved-initial-goto"),
+      headless: true,
+      maxTurns: 2
+    });
+
+    expect(result.status).toBe("passed");
+    expect(initialNavigationRequests).toBe(1);
+    expect(result.results[0]).toMatchObject({ stepId: "open-reviewed-fixture", status: "passed" });
+  });
+
+  it("does not credit initial navigation that redirects outside the approved origin", async () => {
+    outsideRequests = 0;
+    const llm = new UnexpectedDecisionLLM();
+    const result = await runBrowserMission({
+      id: "initial-goto-unsafe-redirect",
+      title: "Reject unsafe initial redirects",
+      risk: "high",
+      startPath: "/boundary/redirect",
+      reason: ["Navigation credit requires successful guarded navigation."],
+      steps: [{
+        id: "open-reviewed-fixture",
+        instruction: "Open the reviewed fixture.",
+        action: "goto",
+        policyLabel: "navigate",
+        target: "/boundary/redirect"
+      }, reviewedCompletionAssertion()]
+    }, {
+      baseUrl,
+      contract: basicContract(),
+      llm,
+      outputDir: path.join(outputDir, "initial-goto-unsafe-redirect"),
+      headless: true,
+      maxTurns: 1
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(result.results[0]).toMatchObject({ stepId: "open-reviewed-fixture", status: "blocked" });
+    expect(result.results[0]?.message).toContain("off-origin");
+    expect(outsideRequests).toBe(0);
+    expect(llm.calls).toBe(0);
+    expect(result.artifacts).toEqual([]);
+    expect(result.evidence?.tracePath).toBeUndefined();
   });
 
   it("invalidates a passed mission when an off-origin navigation begins during final observation", async () => {

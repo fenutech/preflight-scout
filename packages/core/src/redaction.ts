@@ -216,11 +216,16 @@ export function redactPullRequestContext(pullRequest: PullRequestContext): PullR
     ...pullRequest,
     title: pullRequest.title ? redactText(pullRequest.title) : undefined,
     body: pullRequest.body ? redactText(pullRequest.body) : undefined,
+    ...(pullRequest.contextCoverage ? { contextCoverage: {
+      ...pullRequest.contextCoverage,
+      ...(pullRequest.contextCoverage.note ? { note: redactText(pullRequest.contextCoverage.note) } : {})
+    } } : {}),
     files: pullRequest.files.map((file) => {
       const includeFileContext = isSafeIndexedPath(file.path);
       return {
         ...file,
         path: redactText(file.path),
+        ...(file.contextNote ? { contextNote: includeFileContext ? redactText(file.contextNote) : OMITTED_SENSITIVE_FILE_CONTEXT } : {}),
         patch: file.patch
           ? includeFileContext ? redactText(file.patch) : OMITTED_SENSITIVE_FILE_CONTEXT
           : undefined,

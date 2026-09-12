@@ -3,6 +3,7 @@ import sitePackage from "../../package.json";
 export const SITE_URL = "https://preflightscout.com";
 export const GITHUB_URL = "https://github.com/fenutech/preflight-scout";
 export const RELEASE_VERSION = sitePackage.version;
+export const AGENT_SETUP_PROMPT = `Fetch and follow the appropriate instructions to install and set up Preflight Scout for my coding agent from ${SITE_URL}/agent-setup/prompt.md`;
 
 export const HOME_STRUCTURED_DATA = {
   "@context": "https://schema.org",

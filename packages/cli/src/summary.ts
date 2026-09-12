@@ -92,7 +92,7 @@ function collectEvidence(items: Array<string | undefined>): string[] {
 }
 
 function formatVerdict(verdict: ReturnType<typeof buildHumanReportSummary>["verdict"]): string {
-  if (verdict === "ready_for_human_review") return "ready for human review";
+  if (verdict === "ready_for_human_review") return "ready for review";
   if (verdict === "needs_attention") return "needs attention before production";
   return "no browser evidence yet";
 }

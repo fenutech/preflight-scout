@@ -299,9 +299,10 @@ program
   .command("init")
   .description("Create local Preflight Scout config from repo context")
   .option("--root <path>", "repository root", process.cwd())
-  .option("--dry-run", "print repo context without writing files", false)
+  .option("--dry-run", "print a compact repo summary without writing files", false)
+  .option("--full-index", "include the full repository inventory in --dry-run output", false)
   .option("--force", "overwrite existing .preflight-scout/config.yml", false)
-  .option("--no-llm", "write a blank reviewed-by-human contract instead of asking the configured LLM")
+  .option("--no-llm", "write a blank contract for review instead of asking the configured LLM")
   .option("--env-file <path>", "load environment variables before init", ".env.preflight-scout.local")
   .option("--url <url>", "default app URL")
   .option("--local-url <url>", "local development app URL")
@@ -324,7 +325,14 @@ program
     progress("Indexing repository for initial QA contract");
     const repoIndex = await indexRepository(root);
     if (options.dryRun) {
-      console.log(JSON.stringify(repoIndex, null, 2));
+      console.log(JSON.stringify(options.fullIndex ? repoIndex : {
+        root: repoIndex.root,
+        fileInventoryCoverage: repoIndex.fileInventoryCoverage,
+        packageManager: repoIndex.packageManager,
+        manifestFiles: Object.keys(repoIndex.manifests),
+        sampleFiles: repoIndex.files.slice(0, 30),
+        note: "Compact repository inventory summary. Use --dry-run --full-index only when the complete indexed context is needed."
+      }, null, 2));
       console.log("\nRun without --dry-run to create .preflight-scout files.");
       return;
     }
@@ -338,7 +346,7 @@ program
         "Or pass --no-llm for a blank contract."
       ].join("\n"));
     }
-    progress(options.llm ? "Calling LLM init agent" : "Writing blank human-reviewed contract");
+    progress(options.llm ? "Calling LLM init agent" : "Writing blank contract for review");
     const contract = await writeInitialContract(root, repoIndex, llm, {
       appUrl: options.url,
       localUrl: options.localUrl,

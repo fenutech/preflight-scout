@@ -3,9 +3,10 @@ import { GITHUB_URL } from "@/lib/site";
 export function SiteFooter() {
   return (
     <footer className="site-footer">
-      <p>Preflight Scout runs checks and writes the evidence. You still merge, deploy, and decide whether to ship.</p>
+      <p>Preflight Scout runs checks and writes the evidence. Your release process decides when to merge and deploy.</p>
       <nav aria-label="Footer navigation">
         <a href="/install/">Install</a>
+        <a href="/llms.txt">For agents</a>
         <a href="/security/">Security</a>
         <a href="/licenses/fonts-OFL.txt">Font license</a>
         <a href="/licenses/phosphor-MIT.txt">Icon license</a>
