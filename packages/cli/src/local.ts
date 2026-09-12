@@ -10,6 +10,28 @@ import {
   type QAFlowMission,
   type TrustedGit
 } from "@preflight-scout/core";
+import { buildAgentEnvironment, type AgentExecKind } from "@preflight-scout/agent-exec";
+
+/** Keep invocation controls until argv resolution; built-in runners filter them from the child env. */
+export function buildDelegatedInvocationEnvironment(
+  kind: AgentExecKind,
+  credentialEnvNames: readonly string[],
+  sourceEnv: NodeJS.ProcessEnv = process.env
+): NodeJS.ProcessEnv {
+  const env = buildAgentEnvironment(kind, { sourceEnv, credentialEnvNames });
+  if (kind !== "custom") {
+    for (const key of [
+      "PREFLIGHT_SCOUT_EXEC_MODEL",
+      "PREFLIGHT_SCOUT_MODEL",
+      "PREFLIGHT_SCOUT_EXEC_REASONING_EFFORT",
+      "PREFLIGHT_SCOUT_REASONING_EFFORT"
+    ]) {
+      if (sourceEnv[key] !== undefined) env[key] = sourceEnv[key];
+    }
+  }
+  return env;
+}
+
 const TRUST_ENV_FILE_CONTROLS = "PREFLIGHT_SCOUT_TRUST_ENV_FILE_CONTROLS";
 const PRIVILEGED_ENV_FILE_KEYS = new Set([
   "PREFLIGHT_SCOUT_LLM_PROVIDER",

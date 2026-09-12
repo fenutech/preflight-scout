@@ -25,13 +25,13 @@ import {
   writeTextEnsuringDir
 } from "@preflight-scout/core";
 import { canonicalizeStorageStatePath, checkBrowserAvailability, installChromium, printHtmlReportToPdf, validateStorageStateInput, verifyStoredAuthentication, writeStorageStateMetadata } from "@preflight-scout/browser-runner";
-import { buildAgentEnvironment, renderAgentPrompt, runAgentAuthLogin, runAgentExecution, type AgentExecKind, type AgentExecResult } from "@preflight-scout/agent-exec";
+import { renderAgentPrompt, runAgentAuthLogin, runAgentExecution, type AgentExecKind, type AgentExecResult } from "@preflight-scout/agent-exec";
 import { executeMissionViaPromptTool, listMCPTools } from "@preflight-scout/mcp";
 import { CLI_ANALYSIS_RUNTIME, CLI_EXECUTION_RUNTIME, resolveReviewedAnalysis, type ReviewedAnalysis } from "./analysis.js";
 import { buildAuthLoginMission, resolveAuthStorageStatePath } from "./auth.js";
 import { createGenericDemoRepo } from "./demo.js";
 import { renderDoctorReport, runDoctor } from "./doctor.js";
-import { assertCanWriteConfig, createProgressReporter, loadEnvFile, parseTargetEnv, renderInitSummary, resolveAnalysisOutputDir, resolveArtifactReadDirectory, resolveArtifactReadFile, resolveBaseRef, resolveContractOutputDir, resolveHeadRef, resolveRepoPath, resolveStorageOptions } from "./local.js";
+import { assertCanWriteConfig, buildDelegatedInvocationEnvironment, createProgressReporter, loadEnvFile, parseTargetEnv, renderInitSummary, resolveAnalysisOutputDir, resolveArtifactReadDirectory, resolveArtifactReadFile, resolveBaseRef, resolveContractOutputDir, resolveHeadRef, resolveRepoPath, resolveStorageOptions } from "./local.js";
 import { runAutomationCandidates, safeArtifactSegment, selectAutomationCandidates } from "./missions.js";
 import { openReport, renderArtifactSummary } from "./summary.js";
 import { checkForUpdates, renderUpdateCheck } from "./update.js";
@@ -135,9 +135,9 @@ program
       const agentHeartbeatMs = parseOptionalPositiveInteger(options.agentHeartbeatMs, "--agent-heartbeat-ms") ?? 1000 * 30;
       const agentKind = options.agent as AgentExecKind;
       const delegatedContract = selectContractRoles(contract, mission.role ? [mission.role] : []);
-      const agentEnv = buildAgentEnvironment(agentKind, {
-        credentialEnvNames: selectedRoleCredentialEnvNames(contract, mission.role ? [mission.role] : [])
-      });
+      const agentEnv = buildDelegatedInvocationEnvironment(
+        agentKind, selectedRoleCredentialEnvNames(contract, mission.role ? [mission.role] : [])
+      );
       await Promise.all([
         fs.rm(saveStorageState, { force: true }),
         fs.rm(`${saveStorageState}.preflight-scout.json`, { force: true })
@@ -936,9 +936,7 @@ program
       targetRoot: root,
       command: options.command,
       args: options.arg,
-      env: buildAgentEnvironment(agentKind, {
-        credentialEnvNames: selectedRoleCredentialEnvNames(contract, selectedRoles)
-      })
+      env: buildDelegatedInvocationEnvironment(agentKind, selectedRoleCredentialEnvNames(contract, selectedRoles))
     });
     console.log(result.stdout);
     if (result.stderr) console.error(result.stderr);

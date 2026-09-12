@@ -188,6 +188,7 @@ export async function runAgentCapabilityProbe(options: AgentCapabilityProbeOptio
     cwd: options.cwd,
     command: options.command,
     args: options.args,
+    env: options.env,
     promptTransport: options.promptTransport ?? (options.kind === "custom" ? "argv" : "stdin"),
     reasoningEffort: "low",
     executionProfile: "capability-probe",
@@ -295,6 +296,7 @@ Return a concise report with status, current URL, evidence paths, and any human 
 
 interface AgentCommandOptions {
   kind: AgentExecKind;
+  env?: NodeJS.ProcessEnv;
   cwd?: string;
   command?: string;
   args?: string[];
@@ -318,7 +320,7 @@ export function resolveAgentCommand(options: AgentCommandOptions, prompt: string
   }
 
   if (options.kind === "codex") {
-    const settings = resolveExecModelSettings("codex");
+    const settings = resolveExecModelSettings("codex", options.env ?? process.env);
     const model = settings.model;
     const reasoningEffort = options.reasoningEffort ?? settings.reasoningEffort;
     const modelArgs = model ? ["-m", model] : [];
@@ -340,7 +342,7 @@ export function resolveAgentCommand(options: AgentCommandOptions, prompt: string
   }
 
   if (options.kind === "claude") {
-    const settings = resolveExecModelSettings("claude");
+    const settings = resolveExecModelSettings("claude", options.env ?? process.env);
     const model = settings.model;
     const reasoningEffort = options.reasoningEffort ?? settings.reasoningEffort;
     const modelArgs = model ? ["--model", model] : [];
@@ -358,7 +360,7 @@ export function resolveAgentCommand(options: AgentCommandOptions, prompt: string
     };
   }
 
-  const model = resolveExecModelSettings("gemini").model;
+  const model = resolveExecModelSettings("gemini", options.env ?? process.env).model;
   const modelArgs = model ? ["-m", model] : [];
   const capabilityProbeArgs = options.executionProfile === "capability-probe"
     ? [

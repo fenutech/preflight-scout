@@ -18,6 +18,10 @@ All notable changes to Preflight Scout are documented here. This project follows
 
 ### Changed
 
+- Release validation requires real LLM-driven QA through a clean npm install
+  of the exact packed candidate, with source/artifact identity and inspected
+  evidence. Pack checks, dry runs, and mocked smoke tests remain supporting
+  checks; official stable publication keeps its existing protected workflow.
 - OpenAI and Codex execution default to `gpt-6-astra` with `max` reasoning.
   Model and effort remain configurable; explicit local `default` values omit
   either pin. Other providers keep their independent policies. Doctor reports
@@ -37,6 +41,8 @@ All notable changes to Preflight Scout are documented here. This project follows
 
 ### Fixed
 
+- Delegated agent model and reasoning settings respect the supplied execution
+  environment, preventing unrelated global settings from overriding caller policy.
 - Updated the site to Next.js 16.3.3, Vitest to 4.1.11, and vulnerable dependency
   floors; both full and production audits report zero advisories at the
   validation checkpoint.

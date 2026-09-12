@@ -67,7 +67,8 @@ review signal.
   repository variable and provider secret are both configured.
 - `Release Candidate`: a manual, non-publishing validation workflow that checks
   versions, runs the full suite, produces checksummed candidate artifacts, and
-  exercises npm's dry-run path.
+  exercises npm's dry-run path. Its deterministic installation smoke does not
+  replace real-agent QA through a clean installation of those artifacts.
 - `Prepare release branch`: a maintainer supplies the next stable SemVer.
   The workflow updates every lockstep version surface, promotes the changelog,
   creates `codex/release-vX.Y.Z`, dispatches `CI` for its commit, and returns a
@@ -107,6 +108,17 @@ approval, and any external marketplace submission remain explicit maintainer
 decisions. The preparation and release-candidate workflows cannot publish.
 Publish only from a reviewed public tag through the protected workflow in the
 [release checklist](release-checklist.md).
+
+Before a package release, install the exact packed candidate into a clean,
+private npm prefix and run real LLM-driven analysis and browser QA through
+that installed CLI. Record the reviewed source commit, tarball hashes,
+installed package versions, and inspected evidence. A source-checkout run,
+successful pack/dry-run, or mocked CI smoke alone does not satisfy this gate.
+Repeat relevant verification when candidate code or package contents change.
+See [candidate validation and publication](candidate-testing.md) for the procedure.
+This uses the existing tarballs and install tools; no custom registry,
+permanent test infrastructure, or public prerelease is required. The protected
+official stable publication workflow remains a separate authorized action.
 
 ## Website and agent discovery
 

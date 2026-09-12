@@ -47,6 +47,12 @@ release, or marketplace submission.
 - [ ] Install the packed CLI globally with npm in a clean temporary prefix, run
       the installed command, install Chromium explicitly, and exercise the
       browser-aware smoke path. Do not use pnpm for this consumer check.
+- [ ] Complete [installed-candidate agent QA](candidate-testing.md) with the exact
+      packed artifacts in a retained private prefix. Verify the installed
+      package graph, use the matching candidate skill, and run real LLM-driven
+      analysis and browser checks through that installed CLI. Source wrappers,
+      pack/dry-run success, and deterministic or mocked smoke tests alone do
+      not satisfy this gate.
 - [ ] Follow the source install from a clean, stable checkout using
       `pnpm install:source-cli -- --bin-dir <temporary-bin>`.
 - [ ] Confirm the installed wrapper pins the intended absolute Node executable
@@ -149,6 +155,11 @@ pnpm -r --filter './packages/*' publish --access public --dry-run --no-git-check
 - [ ] Run the generic demo through the installed skill, review its analysis,
       execute with `--analysis-dir`, and confirm the reviewed impact-map and
       mission hashes remain unchanged.
+- [ ] Inspect `report-summary.json`, mission results, and relevant browser
+      evidence from the installed candidate's real-agent run. Verify a
+      meaningful passing journey and a known-negative outcome; distinguish
+      an expected application failure from a Scout defect. A zero exit code
+      alone does not prove that checks ran or produced the correct result.
 - [ ] Confirm missing, foreign-repository, commit-stale, contract-stale,
       mission-tampered, result-tampered, and evidence-tampered analysis
       directories fail before model or browser execution.
@@ -170,11 +181,22 @@ pnpm -r --filter './packages/*' publish --access public --dry-run --no-git-check
 
 - [ ] Run the non-publishing `Release Candidate` workflow for the exact version.
 - [ ] Record checksums for package tarballs and the Agent Skill archive.
+- [ ] Retain a verification record linking the exact source commit and
+      tarball hashes to the clean installed package versions, agent/model
+      settings, exercised missions, and inspected outcomes. Keep raw logs,
+      auth state, and private paths out of public artifacts. Rebuild, reinstall,
+      and repeat relevant real-agent checks after code or package-content changes.
 - [ ] Review release notes, known limitations, upgrade notes, and license
       boundaries.
 - [ ] Ask the assigned reviewer to verify installation, security boundaries,
       and the sample report, and wait for a clear positive signal before
       merging the release pull request.
+
+The candidate gate uses local packed artifacts. A public npm prerelease is
+optional for warranted external testing with explicit publication authorization;
+it is not a requirement for normal pull requests. The current official
+publication workflow remains stable-only. Do not introduce a custom registry,
+test package, or alternate publication path to complete this checklist.
 
 ## Authorized publication only
 
