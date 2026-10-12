@@ -37,7 +37,7 @@
     "prepublishOnly": "node ../../scripts/package-build-integrity.mjs verify"
   },
   "dependencies": {
-    "@actions/artifact": "^6.2.1",
+    "@actions/artifact": "^6.3.1",
     "@actions/core": "^3.0.1",
     "@actions/github": "^9.1.1",
     "@preflight-scout/browser-runner": "workspace:*",
